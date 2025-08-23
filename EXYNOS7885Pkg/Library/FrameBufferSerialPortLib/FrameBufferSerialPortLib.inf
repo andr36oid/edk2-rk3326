@@ -20,7 +20,8 @@
   HobLib
   CompilerIntrinsicsLib
   CacheMaintenanceLib
-
+  TimerLib
+  
 [Pcd]
   gEXYNOS7885PkgTokenSpaceGuid.PcdMipiFrameBufferAddress
   gEXYNOS7885PkgTokenSpaceGuid.PcdMipiFrameBufferWidth
