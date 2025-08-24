@@ -23,3 +23,12 @@
   gEXYNOS7885PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleHeight|854
   gEXYNOS7885PkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp|32
 
+  [PcdsDynamicDefault.common]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution|480 # /8 = column
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution|854 #/19 = row
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoHorizontalResolution|480
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSetupVideoVerticalResolution|854
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSetupConOutColumn|60
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSetupConOutRow|44
+  gEfiMdeModulePkgTokenSpaceGuid.PcdConOutColumn|60
+  gEfiMdeModulePkgTokenSpaceGuid.PcdConOutRow|44
