@@ -25,6 +25,7 @@
   BUILD_TARGETS                  = DEBUG|RELEASE
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = EXYNOS7885Pkg/EXYNOS7885Pkg.fdf
+  DEFINE USE_SCREEN_FOR_SERIAL_OUTPUT = 0
 
 !include EXYNOS7885Pkg/CommonDsc.dsc.inc
 
@@ -53,7 +54,7 @@
   DxeServicesLib|MdePkg/Library/DxeServicesLib/DxeServicesLib.inf
   BootLogoLib|MdeModulePkg/Library/BootLogoLib/BootLogoLib.inf
 
-  SerialPortLib|EXYNOS7885Pkg/Library/InMemorySerialPortLib/InMemorySerialPortLib.inf
+  # SerialPortLib|EXYNOS7885Pkg/Library/InMemorySerialPortLib/InMemorySerialPortLib.inf
   RealTimeClockLib|EmbeddedPkg/Library/VirtualRealTimeClockLib/VirtualRealTimeClockLib.inf
   TimeBaseLib|EmbeddedPkg/Library/TimeBaseLib/TimeBaseLib.inf
 
@@ -76,8 +77,13 @@
   # SimpleFbDxe
   FrameBufferBltLib|EXYNOS7885Pkg/Library/FrameBufferBltLib/FrameBufferBltLib.inf
 
+!if $(USE_SCREEN_FOR_SERIAL_OUTPUT) == 1
   SerialPortLib|EXYNOS7885Pkg/Library/FrameBufferSerialPortLib/FrameBufferSerialPortLib.inf
-  PlatformBootManagerLib|EXYNOS7885Pkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
+!else
+  SerialPortLib|MdePkg/Library/BaseSerialPortLibNull/BaseSerialPortLibNull.inf
+!endif
+
+  PlatformBootManagerLib|ArmPkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
   MemoryInitPeiLib|EXYNOS7885Pkg/Library/MemoryInitPeiLib/PeiMemoryAllocationLib.inf
   PlatformPeiLib|EXYNOS7885Pkg/Library/PlatformPeiLib/PlatformPeiLib.inf
 

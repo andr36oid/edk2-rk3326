@@ -40,6 +40,7 @@ GRAPHICS_CONSOLE_DEV  mGraphicsConsoleDevTemplate = {
 
 GRAPHICS_CONSOLE_MODE_DATA  mGraphicsConsoleModeData[] = {
   { 60 , 44 },   //  480 x 854
+  { 90 , 37 },   //  720 x 720
   { 100, 31 },  //  800 x 600
   { 128, 40 },  // 1024 x 768
   { 160, 42 },  // 1280 x 800
