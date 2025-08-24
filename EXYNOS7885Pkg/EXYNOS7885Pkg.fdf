@@ -114,7 +114,7 @@ READ_LOCK_STATUS   = TRUE
   INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
   INF EXYNOS7885Pkg/Drivers/ConSplitterDxe/ConSplitterDxe.inf
   INF EXYNOS7885Pkg/Drivers/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
-  INF MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
+  INF EXYNOS7885Pkg/Drivers/TerminalDxe/TerminalDxe.inf
   INF MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
 
   INF ArmPkg/Drivers/ArmGicDxe/ArmGicV2Dxe.inf
