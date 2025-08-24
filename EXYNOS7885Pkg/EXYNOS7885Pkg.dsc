@@ -171,9 +171,9 @@
 
 
   MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
-  EXYNOS7885Pkg/Drivers/ConSplitterDxe/ConSplitterDxe.inf
-  EXYNOS7885Pkg/Drivers/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
-  EXYNOS7885Pkg/Drivers/TerminalDxe/TerminalDxe.inf
+  EXYNOS7885Pkg/Drivers/Console/ConSplitterDxe/ConSplitterDxe.inf
+  EXYNOS7885Pkg/Drivers/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf
+  EXYNOS7885Pkg/Drivers/Console/TerminalDxe/TerminalDxe.inf
   MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
 
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
