@@ -12,16 +12,17 @@
 !include RK3326Pkg/RK3326Pkg.dsc
 
 [PcdsFixedAtBuild.common]
-  # System Memory (1.5GB)
+  # System Memory (1 GB)
   gArmTokenSpaceGuid.PcdSystemMemoryBase|0x00000000
   gArmTokenSpaceGuid.PcdSystemMemorySize|0x3de00000
-  # Framebuffer (720x1280)
+  # Framebuffer (480x854)
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferAddress|0x3de00000
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferWidth|480
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferHeight|854
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleWidth|480
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleHeight|854
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp|32
+  gRK3326PkgTokenSpaceGuid.PcdDisplayRotation|270
 
   [PcdsDynamicDefault.common]
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution|480 # /8 = column

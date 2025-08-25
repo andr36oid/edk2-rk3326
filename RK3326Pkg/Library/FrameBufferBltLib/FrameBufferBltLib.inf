@@ -32,3 +32,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  RK3326Pkg/RK3326Pkg.dec
+
+[Pcd]
+  gRK3326PkgTokenSpaceGuid.PcdDisplayRotation

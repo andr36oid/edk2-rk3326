@@ -19,12 +19,14 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/FrameBufferBltLib.h>
+#include <Library/PcdLib.h>               // <-- added for FixedPcdGet32(PcdFrameBufferRotation)
+#include <Library/MemoryAllocationLib.h>  // <-- added for AllocatePool/FreePool if needed
 
 struct FRAME_BUFFER_CONFIGURE {
   UINT32                          PixelsPerScanLine;
   UINT32                          BytesPerPixel;
-  UINT32                          Width;
-  UINT32                          Height;
+  UINT32                          Width;    // logical width (GOP reported width)
+  UINT32                          Height;   // logical height
   UINT8                           *FrameBuffer;
   EFI_GRAPHICS_PIXEL_FORMAT       PixelFormat;
   EFI_PIXEL_BITMASK               PixelMasks;
@@ -41,14 +43,98 @@ CONST EFI_PIXEL_BITMASK mBgrPixelMasks = {
   0x00ff0000, 0x0000ff00, 0x000000ff, 0xff000000
 };
 
-/**
-  Initialize the bit mask in frame buffer configure.
+/* ---------------------------
+   Rotation helpers
+   --------------------------- */
 
-  @param BitMask       The bit mask of pixel.
-  @param BytesPerPixel Size in bytes of pixel.
-  @param PixelShl      Left shift array.
-  @param PixelShr      Right shift array.
+typedef enum {
+  FbRotNone = 0,
+  FbRot90   = 90,
+  FbRot180  = 180,
+  FbRot270  = 270
+} FB_ROTATION;
+
+/**
+  Get rotation from PCD (add PcdFrameBufferRotation to your DEC/DSC).
 **/
+STATIC
+FB_ROTATION
+GetFbRotation (
+  VOID
+  )
+{
+  UINT32 V = FixedPcdGet32 (PcdDisplayRotation);
+  switch (V) {
+    case 90:  return FbRot90;
+    case 180: return FbRot180;
+    case 270: return FbRot270;
+    default:  return FbRotNone;
+  }
+}
+
+/**
+  Map logical (x,y) to physical framebuffer coordinates (Xphys,Yphys)
+  using rotation and the logical/physical sizes.
+
+  - Wlog/Hlog: logical width/height (what Configure->Width/Height holds)
+  - PixelsPerScanLine: physical stride (used only to address pixels later)
+**/
+STATIC
+VOID
+MapLogicalToPhysical (
+  IN  FB_ROTATION Rot,
+  IN  UINT32      Wlog,
+  IN  UINT32      Hlog,
+  IN  INT32       x,
+  IN  INT32       y,
+  OUT INT32      *Xphys,
+  OUT INT32      *Yphys
+  )
+{
+  switch (Rot) {
+    case FbRotNone:
+      *Xphys = x; *Yphys = y;
+      break;
+    case FbRot90:
+      // 90 deg CW
+      *Xphys = (INT32)(Hlog - 1 - y);
+      *Yphys = x;
+      break;
+    case FbRot180:
+      *Xphys = (INT32)(Wlog - 1 - x);
+      *Yphys = (INT32)(Hlog - 1 - y);
+      break;
+    case FbRot270:
+      // 270 deg CW (90 deg CCW)
+      *Xphys = y;
+      *Yphys = (INT32)(Wlog - 1 - x);
+      break;
+    default:
+      *Xphys = x; *Yphys = y;
+      break;
+  }
+}
+
+/**
+  Return pointer to physical pixel start (byte pointer)
+**/
+STATIC
+UINT8 *
+PixelPtrPhys (
+  IN UINT8  *FbBase,
+  IN UINT32  BytesPerPixel,
+  IN UINT32  PixelsPerScanLine,
+  IN INT32   Xphys,
+  IN INT32   Yphys
+  )
+{
+  return FbBase + (((UINTN)Yphys * PixelsPerScanLine) + (UINTN)Xphys) * BytesPerPixel;
+}
+
+/* ---------------------------
+   existing functions (unchanged until modifications)
+   --------------------------- */
+
 VOID
 FrameBufferBltLibConfigurePixelFormat (
   IN CONST EFI_PIXEL_BITMASK    *BitMask,
@@ -144,9 +230,13 @@ FrameBufferBltConfigure (
     return RETURN_INVALID_PARAMETER;
   }
 
-  if (FrameBufferInfo->PixelsPerScanLine < FrameBufferInfo->HorizontalResolution) {
-    return RETURN_UNSUPPORTED;
-  }
+    // Allow PSL < HorizontalResolution when we are rotating (90/270) since
+    // logical width != physical stride. Non-rotated still enforces the check.
+    UINT32 Rot = FixedPcdGet32 (PcdDisplayRotation);
+    if ((Rot == 0 || Rot == 180) &&
+        (FrameBufferInfo->PixelsPerScanLine < FrameBufferInfo->HorizontalResolution)) {
+      return RETURN_UNSUPPORTED;
+    }
 
   FrameBufferBltLibConfigurePixelFormat (BitMask, &BytesPerPixel, PixelShl, PixelShr);
 
@@ -169,9 +259,9 @@ FrameBufferBltConfigure (
 
   Configure->PixelFormat       = FrameBufferInfo->PixelFormat;
   Configure->FrameBuffer       = (UINT8*) FrameBuffer;
-  Configure->Width             = FrameBufferInfo->HorizontalResolution;
-  Configure->Height            = FrameBufferInfo->VerticalResolution;
-  Configure->PixelsPerScanLine = FrameBufferInfo->PixelsPerScanLine;
+  Configure->Width             = FrameBufferInfo->HorizontalResolution; // logical width
+  Configure->Height            = FrameBufferInfo->VerticalResolution;   // logical height
+  Configure->PixelsPerScanLine = FrameBufferInfo->PixelsPerScanLine;    // physical stride
 
   return RETURN_SUCCESS;
 }
@@ -213,8 +303,12 @@ FrameBufferBltLibVideoFill (
   UINTN                             WidthInBytes;
   UINTN                             SizeInBytes;
 
+  if (Configure == NULL || Color == NULL) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
   //
-  // BltBuffer to Video: Source is BltBuffer, destination is Video
+  // Bounds checks are in logical coordinates (Configure->Width/Height are logical)
   //
   if (DestinationY + Height > Configure->Height) {
     DEBUG ((EFI_D_VERBOSE, "VideoFill: Past screen (Y)\n"));
@@ -244,83 +338,115 @@ FrameBufferBltLibVideoFill (
        Configure->PixelMasks.BlueMask)
       );
   DEBUG ((EFI_D_VERBOSE, "VideoFill: color=0x%x, wide-fill=0x%x\n",
-          Uint32, WideFill));
+          Uint32, (UINT32)WideFill));
 
   //
-  // If the size of the pixel data evenly divides the sizeof
-  // WideFill, then a wide fill operation can be used
+  // If no rotation, keep the original wide/optimized paths.
   //
-  UseWideFill = TRUE;
-  if ((sizeof (WideFill) % Configure->BytesPerPixel) == 0) {
-    for (IndexX = Configure->BytesPerPixel; IndexX < sizeof (WideFill); IndexX++) {
-      ((UINT8*) &WideFill)[IndexX] = ((UINT8*) &WideFill)[IndexX % Configure->BytesPerPixel];
-    }
-  } else {
-    //
-    // If all the bytes in the pixel are the same value, then use
-    // a wide fill operation.
-    //
-    for (
-      IndexX = 1, Uint8 = ((UINT8*) &WideFill)[0];
-      IndexX < Configure->BytesPerPixel;
-      IndexX++) {
-      if (Uint8 != ((UINT8*) &WideFill)[IndexX]) {
-        UseWideFill = FALSE;
-        break;
+  if (GetFbRotation() == FbRotNone) {
+    // original fast path unchanged
+    UseWideFill = TRUE;
+    if ((sizeof (WideFill) % Configure->BytesPerPixel) == 0) {
+      for (IndexX = Configure->BytesPerPixel; IndexX < sizeof (WideFill); IndexX++) {
+        ((UINT8*) &WideFill)[IndexX] = ((UINT8*) &WideFill)[IndexX % Configure->BytesPerPixel];
+      }
+    } else {
+      for (
+        IndexX = 1, Uint8 = ((UINT8*) &WideFill)[0];
+        IndexX < Configure->BytesPerPixel;
+        IndexX++) {
+        if (Uint8 != ((UINT8*) &WideFill)[IndexX]) {
+          UseWideFill = FALSE;
+          break;
+        }
+      }
+      if (UseWideFill) {
+        SetMem (&WideFill, sizeof (WideFill), Uint8);
       }
     }
-    if (UseWideFill) {
-      SetMem (&WideFill, sizeof (WideFill), Uint8);
-    }
-  }
 
-  if (UseWideFill && (DestinationX == 0) && (Width == Configure->PixelsPerScanLine)) {
-    DEBUG ((EFI_D_VERBOSE, "VideoFill (wide, one-shot)\n"));
-    Offset = DestinationY * Configure->PixelsPerScanLine;
-    Offset = Configure->BytesPerPixel * Offset;
-    Destination = Configure->FrameBuffer + Offset;
-    SizeInBytes = WidthInBytes * Height;
-    if (SizeInBytes >= 8) {
-      SetMem32 (Destination, SizeInBytes & ~3, (UINT32) WideFill);
-      Destination += SizeInBytes & ~3;
-      SizeInBytes &= 3;
-    }
-    if (SizeInBytes > 0) {
-      SetMem (Destination, SizeInBytes, (UINT8) (UINTN) WideFill);
-    }
-  } else {
-    LineBufferReady = FALSE;
-    for (IndexY = DestinationY; IndexY < (Height + DestinationY); IndexY++) {
-      Offset = (IndexY * Configure->PixelsPerScanLine) + DestinationX;
+    if (UseWideFill && (DestinationX == 0) && (Width == Configure->PixelsPerScanLine)) {
+      DEBUG ((EFI_D_VERBOSE, "VideoFill (wide, one-shot)\n"));
+      Offset = DestinationY * Configure->PixelsPerScanLine;
       Offset = Configure->BytesPerPixel * Offset;
       Destination = Configure->FrameBuffer + Offset;
+      SizeInBytes = WidthInBytes * Height;
+      if (SizeInBytes >= 8) {
+        SetMem32 (Destination, SizeInBytes & ~3, (UINT32) WideFill);
+        Destination += SizeInBytes & ~3;
+        SizeInBytes &= 3;
+      }
+      if (SizeInBytes > 0) {
+        SetMem (Destination, SizeInBytes, (UINT8) (UINTN) WideFill);
+      }
+    } else {
+      LineBufferReady = FALSE;
+      for (IndexY = DestinationY; IndexY < (Height + DestinationY); IndexY++) {
+        Offset = (IndexY * Configure->PixelsPerScanLine) + DestinationX;
+        Offset = Configure->BytesPerPixel * Offset;
+        Destination = Configure->FrameBuffer + Offset;
 
-      if (UseWideFill && (((UINTN) Destination & 7) == 0)) {
-        DEBUG ((EFI_D_VERBOSE, "VideoFill (wide)\n"));
-        SizeInBytes = WidthInBytes;
-        if (SizeInBytes >= 8) {
-          SetMem64 (Destination, SizeInBytes & ~7, WideFill);
-          Destination += SizeInBytes & ~7;
-          SizeInBytes &= 7;
-        }
-        if (SizeInBytes > 0) {
-          CopyMem (Destination, &WideFill, SizeInBytes);
-        }
-      } else {
-        DEBUG ((EFI_D_VERBOSE, "VideoFill (not wide)\n"));
-        if (!LineBufferReady) {
-          CopyMem (Configure->LineBuffer, &WideFill, Configure->BytesPerPixel);
-          for (IndexX = 1; IndexX < Width; ) {
-            CopyMem (
-              (Configure->LineBuffer + (IndexX * Configure->BytesPerPixel)),
-              Configure->LineBuffer,
-              MIN (IndexX, Width - IndexX) * Configure->BytesPerPixel
-            );
-            IndexX += MIN (IndexX, Width - IndexX);
+        if (UseWideFill && (((UINTN) Destination & 7) == 0)) {
+          DEBUG ((EFI_D_VERBOSE, "VideoFill (wide)\n"));
+          SizeInBytes = WidthInBytes;
+          if (SizeInBytes >= 8) {
+            SetMem64 (Destination, SizeInBytes & ~7, WideFill);
+            Destination += SizeInBytes & ~7;
+            SizeInBytes &= 7;
           }
-          LineBufferReady = TRUE;
+          if (SizeInBytes > 0) {
+            CopyMem (Destination, &WideFill, SizeInBytes);
+          }
+        } else {
+          DEBUG ((EFI_D_VERBOSE, "VideoFill (not wide)\n"));
+          if (!LineBufferReady) {
+            CopyMem (Configure->LineBuffer, &WideFill, Configure->BytesPerPixel);
+            for (IndexX = 1; IndexX < Width; ) {
+              CopyMem (
+                (Configure->LineBuffer + (IndexX * Configure->BytesPerPixel)),
+                Configure->LineBuffer,
+                MIN (IndexX, Width - IndexX) * Configure->BytesPerPixel
+              );
+              IndexX += MIN (IndexX, Width - IndexX);
+            }
+            LineBufferReady = TRUE;
+          }
+          CopyMem (Destination, Configure->LineBuffer, WidthInBytes);
         }
-        CopyMem (Destination, Configure->LineBuffer, WidthInBytes);
+      }
+    }
+
+    return RETURN_SUCCESS;
+  }
+
+  //
+  // Rotation != 0: fallback to safe per-pixel writes using mapping
+  //
+  {
+    FB_ROTATION Rot = GetFbRotation();
+    UINT8 *FbBase = Configure->FrameBuffer;
+    UINT32 Bpp = Configure->BytesPerPixel;
+    UINT32 PSL = Configure->PixelsPerScanLine;
+    UINT8 FillBytes[8]; // enough for up to 8 bytes but we use BytesPerPixel
+    UINTN b;
+
+    // copy WideFill into byte array (little-endian as memory expects)
+    for (b = 0; b < Configure->BytesPerPixel; ++b) {
+      FillBytes[b] = ((UINT8*)&WideFill)[b];
+    }
+
+    for (IndexY = 0; IndexY < Height; ++IndexY) {
+      for (IndexX = 0; IndexX < Width; ++IndexX) {
+        INT32 Xp, Yp;
+        MapLogicalToPhysical (Rot, Configure->Width, Configure->Height,
+                              (INT32)(DestinationX + IndexX),
+                              (INT32)(DestinationY + IndexY),
+                              &Xp, &Yp);
+
+        UINT8 *D = PixelPtrPhys (FbBase, Bpp, PSL, Xp, Yp);
+        for (b = 0; b < Configure->BytesPerPixel; ++b) {
+          D[b] = FillBytes[b];
+        }
       }
     }
   }
@@ -328,24 +454,6 @@ FrameBufferBltLibVideoFill (
   return RETURN_SUCCESS;
 }
 
-/**
-  Performs a UEFI Graphics Output Protocol Blt Video to Buffer operation
-  with extended parameters.
-
-  @param[in]  Configure     Pointer to a configuration which was successfully
-                            created by FrameBufferBltConfigure ().
-  @param[out] BltBuffer     Output buffer for pixel color data.
-  @param[in]  SourceX       X location within video.
-  @param[in]  SourceY       Y location within video.
-  @param[in]  DestinationX  X location within BltBuffer.
-  @param[in]  DestinationY  Y location within BltBuffer.
-  @param[in]  Width         Width (in pixels).
-  @param[in]  Height        Height.
-  @param[in]  Delta         Number of bytes in a row of BltBuffer.
-
-  @retval RETURN_INVALID_PARAMETER Invalid parameter were passed in.
-  @retval RETURN_SUCCESS           The Blt operation was performed successfully.
-**/
 RETURN_STATUS
 FrameBufferBltLibVideoToBltBuffer (
   IN     FRAME_BUFFER_CONFIGURE          *Configure,
@@ -369,9 +477,10 @@ FrameBufferBltLibVideoToBltBuffer (
   UINTN                                  Offset;
   UINTN                                  WidthInBytes;
 
-  //
-  // Video to BltBuffer: Source is Video, destination is BltBuffer
-  //
+  if (Configure == NULL || BltBuffer == NULL) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
   if (SourceY + Height > Configure->Height) {
     return RETURN_INVALID_PARAMETER;
   }
@@ -384,11 +493,6 @@ FrameBufferBltLibVideoToBltBuffer (
     return RETURN_INVALID_PARAMETER;
   }
 
-  //
-  // If Delta is zero, then the entire BltBuffer is being used, so Delta is
-  // the number of bytes in each row of BltBuffer. Since BltBuffer is Width
-  // pixels size, the number of bytes in each row can be computed.
-  //
   if (Delta == 0) {
     Delta = Width * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL);
   }
@@ -396,39 +500,69 @@ FrameBufferBltLibVideoToBltBuffer (
   WidthInBytes = Width * Configure->BytesPerPixel;
 
   //
-  // Video to BltBuffer: Source is Video, destination is BltBuffer
+  // If no rotation and PixelFormat is BGR fast path, keep original.
   //
-  for (SrcY = SourceY, DstY = DestinationY;
-       DstY < (Height + DestinationY);
-       SrcY++, DstY++) {
+  if (GetFbRotation() == FbRotNone &&
+      Configure->PixelFormat == PixelBlueGreenRedReserved8BitPerColor) {
 
-    Offset = (SrcY * Configure->PixelsPerScanLine) + SourceX;
-    Offset = Configure->BytesPerPixel * Offset;
-    Source = Configure->FrameBuffer + Offset;
+    for (SrcY = SourceY, DstY = DestinationY;
+         DstY < (Height + DestinationY);
+         SrcY++, DstY++) {
 
-    if (Configure->PixelFormat == PixelBlueGreenRedReserved8BitPerColor) {
+      Offset = (SrcY * Configure->PixelsPerScanLine) + SourceX;
+      Offset = Configure->BytesPerPixel * Offset;
+      Source = Configure->FrameBuffer + Offset;
+
       Destination = (UINT8 *) BltBuffer + (DstY * Delta) + (DestinationX * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL));
-    } else {
-      Destination = Configure->LineBuffer;
+
+      CopyMem (Destination, Source, WidthInBytes);
     }
 
-    CopyMem (Destination, Source, WidthInBytes);
+    return RETURN_SUCCESS;
+  }
 
-    if (Configure->PixelFormat != PixelBlueGreenRedReserved8BitPerColor) {
-      for (IndexX = 0; IndexX < Width; IndexX++) {
-        Blt = (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)
-          ((UINT8 *) BltBuffer + (DstY * Delta) +
-          (DestinationX + IndexX) * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL));
-        Uint32 = *(UINT32*) (Configure->LineBuffer + (IndexX * Configure->BytesPerPixel));
-        *(UINT32*) Blt =
-          (UINT32) (
-          (((Uint32 & Configure->PixelMasks.RedMask) >>
-            Configure->PixelShl[0]) << Configure->PixelShr[0]) |
-            (((Uint32 & Configure->PixelMasks.GreenMask) >>
-              Configure->PixelShl[1]) << Configure->PixelShr[1]) |
-              (((Uint32 & Configure->PixelMasks.BlueMask) >>
-                Configure->PixelShl[2]) << Configure->PixelShr[2])
-            );
+  //
+  // Rotation != 0 or a PixelFormat requiring translation: do per-pixel mapping + conversion
+  //
+  {
+    FB_ROTATION Rot = GetFbRotation();
+    UINT8 *FbBase = Configure->FrameBuffer;
+    UINT32 Bpp = Configure->BytesPerPixel;
+    UINT32 PSL = Configure->PixelsPerScanLine;
+
+    for (SrcY = 0; SrcY < Height; ++SrcY) {
+      for (IndexX = 0; IndexX < Width; ++IndexX) {
+        // map logical source pixel (SourceX+IndexX, SourceY+SrcY) -> physical
+        INT32 Xp, Yp;
+        MapLogicalToPhysical (Rot, Configure->Width, Configure->Height,
+                              (INT32)(SourceX + IndexX),
+                              (INT32)(SourceY + SrcY),
+                              &Xp, &Yp);
+
+        UINT8 *SrcPtr = PixelPtrPhys (FbBase, Bpp, PSL, Xp, Yp);
+        // Read native framebuffer pixel (masked/aligned)
+        Uint32 = 0;
+        for (UINTN b = 0; b < Configure->BytesPerPixel; ++b) {
+          ((UINT8*)&Uint32)[b] = SrcPtr[b];
+        }
+
+        // Translate to EFI_GRAPHICS_OUTPUT_BLT_PIXEL in BltBuffer
+        Blt = (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *) ((UINT8*)BltBuffer + ((DestinationY + SrcY) * Delta) + ((DestinationX + IndexX) * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)));
+
+        if (Configure->PixelFormat == PixelBlueGreenRedReserved8BitPerColor) {
+          // raw copy already handled above (we won't get here)
+          *(UINT32*) Blt = Uint32;
+        } else {
+          *(UINT32*) Blt =
+            (UINT32) (
+            (((Uint32 & Configure->PixelMasks.RedMask) >>
+              Configure->PixelShl[0]) << Configure->PixelShr[0]) |
+              (((Uint32 & Configure->PixelMasks.GreenMask) >>
+                Configure->PixelShl[1]) << Configure->PixelShr[1]) |
+                (((Uint32 & Configure->PixelMasks.BlueMask) >>
+                  Configure->PixelShl[2]) << Configure->PixelShr[2])
+              );
+        }
       }
     }
   }
@@ -436,24 +570,6 @@ FrameBufferBltLibVideoToBltBuffer (
   return RETURN_SUCCESS;
 }
 
-/**
-  Performs a UEFI Graphics Output Protocol Blt Buffer to Video operation
-  with extended parameters.
-
-  @param[in]  Configure     Pointer to a configuration which was successfully
-                            created by FrameBufferBltConfigure ().
-  @param[in]  BltBuffer     Output buffer for pixel color data.
-  @param[in]  SourceX       X location within BltBuffer.
-  @param[in]  SourceY       Y location within BltBuffer.
-  @param[in]  DestinationX  X location within video.
-  @param[in]  DestinationY  Y location within video.
-  @param[in]  Width         Width (in pixels).
-  @param[in]  Height        Height.
-  @param[in]  Delta         Number of bytes in a row of BltBuffer.
-
-  @retval RETURN_INVALID_PARAMETER Invalid parameter were passed in.
-  @retval RETURN_SUCCESS           The Blt operation was performed successfully.
-**/
 RETURN_STATUS
 FrameBufferBltLibBufferToVideo (
   IN  FRAME_BUFFER_CONFIGURE                *Configure,
@@ -477,9 +593,10 @@ FrameBufferBltLibBufferToVideo (
   UINTN                                    Offset;
   UINTN                                    WidthInBytes;
 
-  //
-  // BltBuffer to Video: Source is BltBuffer, destination is Video
-  //
+  if (Configure == NULL || BltBuffer == NULL) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
   if (DestinationY + Height > Configure->Height) {
     return RETURN_INVALID_PARAMETER;
   }
@@ -492,70 +609,77 @@ FrameBufferBltLibBufferToVideo (
     return RETURN_INVALID_PARAMETER;
   }
 
-  //
-  // If Delta is zero, then the entire BltBuffer is being used, so Delta is
-  // the number of bytes in each row of BltBuffer. Since BltBuffer is Width
-  // pixels size, the number of bytes in each row can be computed.
-  //
   if (Delta == 0) {
     Delta = Width * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL);
   }
 
   WidthInBytes = Width * Configure->BytesPerPixel;
 
-  for (SrcY = SourceY, DstY = DestinationY;
-       SrcY < (Height + SourceY);
-       SrcY++, DstY++) {
+  //
+  // If no rotation and PixelFormat is BGR fast path, keep original (optimized).
+  //
+  if (GetFbRotation() == FbRotNone &&
+      Configure->PixelFormat == PixelBlueGreenRedReserved8BitPerColor) {
 
-    Offset = (DstY * Configure->PixelsPerScanLine) + DestinationX;
-    Offset = Configure->BytesPerPixel * Offset;
-    Destination = Configure->FrameBuffer + Offset;
+    for (SrcY = SourceY, DstY = DestinationY;
+         SrcY < (Height + SourceY);
+         SrcY++, DstY++) {
 
-    if (Configure->PixelFormat == PixelBlueGreenRedReserved8BitPerColor) {
+      Offset = (DstY * Configure->PixelsPerScanLine) + DestinationX;
+      Offset = Configure->BytesPerPixel * Offset;
+      Destination = Configure->FrameBuffer + Offset;
+
       Source = (UINT8 *) BltBuffer + (SrcY * Delta);
-    } else {
-      for (IndexX = 0; IndexX < Width; IndexX++) {
-        Blt =
-          (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *) (
-              (UINT8 *) BltBuffer +
-              (SrcY * Delta) +
-              ((SourceX + IndexX) * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL))
-            );
-        Uint32 = *(UINT32*) Blt;
-        *(UINT32*) (Configure->LineBuffer + (IndexX * Configure->BytesPerPixel)) =
-          (UINT32) (
-              (((Uint32 << Configure->PixelShl[0]) >> Configure->PixelShr[0]) &
-               Configure->PixelMasks.RedMask) |
-              (((Uint32 << Configure->PixelShl[1]) >> Configure->PixelShr[1]) &
-               Configure->PixelMasks.GreenMask) |
-              (((Uint32 << Configure->PixelShl[2]) >> Configure->PixelShr[2]) &
-               Configure->PixelMasks.BlueMask)
-            );
-      }
-      Source = Configure->LineBuffer;
+
+      CopyMem (Destination, Source, WidthInBytes);
     }
 
-    CopyMem (Destination, Source, WidthInBytes);
+    return RETURN_SUCCESS;
+  }
+
+  //
+  // Rotation != 0 or PixelFormat requiring translation: do per-pixel conversion + mapping
+  //
+  {
+    FB_ROTATION Rot = GetFbRotation();
+    UINT8 *FbBase = Configure->FrameBuffer;
+    UINT32 Bpp = Configure->BytesPerPixel;
+    UINT32 PSL = Configure->PixelsPerScanLine;
+
+    for (SrcY = 0; SrcY < Height; ++SrcY) {
+      for (IndexX = 0; IndexX < Width; ++IndexX) {
+        // Read source BltBuffer pixel
+        Blt = (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *) ((UINT8*)BltBuffer + ((SourceY + SrcY) * Delta) + ((SourceX + IndexX) * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)));
+        Uint32 = *(UINT32*) Blt;
+
+        // Convert to native framebuffer pixel format
+        Uint32 = (UINT32) (
+            (((Uint32 << Configure->PixelShl[0]) >> Configure->PixelShr[0]) &
+             Configure->PixelMasks.RedMask) |
+            (((Uint32 << Configure->PixelShl[1]) >> Configure->PixelShr[1]) &
+             Configure->PixelMasks.GreenMask) |
+            (((Uint32 << Configure->PixelShl[2]) >> Configure->PixelShr[2]) &
+             Configure->PixelMasks.BlueMask)
+            );
+
+        // Map logical destination pixel to physical coordinates
+        INT32 Xp, Yp;
+        MapLogicalToPhysical (Rot, Configure->Width, Configure->Height,
+                              (INT32)(DestinationX + IndexX),
+                              (INT32)(DestinationY + SrcY),
+                              &Xp, &Yp);
+
+        UINT8 *DstPtr = PixelPtrPhys (FbBase, Bpp, PSL, Xp, Yp);
+        for (UINTN b = 0; b < Configure->BytesPerPixel; ++b) {
+          DstPtr[b] = ((UINT8*)&Uint32)[b];
+        }
+      }
+    }
   }
 
   return RETURN_SUCCESS;
 }
 
-/**
-  Performs a UEFI Graphics Output Protocol Blt Video to Video operation
-
-  @param[in]  Configure     Pointer to a configuration which was successfully
-                            created by FrameBufferBltConfigure ().
-  @param[in]  SourceX       X location within video.
-  @param[in]  SourceY       Y location within video.
-  @param[in]  DestinationX  X location within video.
-  @param[in]  DestinationY  Y location within video.
-  @param[in]  Width         Width (in pixels).
-  @param[in]  Height        Height.
-
-  @retval RETURN_INVALID_PARAMETER Invalid parameter were passed in.
-  @retval RETURN_SUCCESS           The Blt operation was performed successfully.
-**/
 RETURN_STATUS
 FrameBufferBltLibVideoToVideo (
   IN  FRAME_BUFFER_CONFIGURE                *Configure,
@@ -573,8 +697,12 @@ FrameBufferBltLibVideoToVideo (
   UINTN                                     WidthInBytes;
   INTN                                      LineStride;
 
+  if (Configure == NULL) {
+    return RETURN_INVALID_PARAMETER;
+  }
+
   //
-  // Video to Video: Source is Video, destination is Video
+  // Bounds checks are logical checks here.
   //
   if (SourceY + Height > Configure->Height) {
     return RETURN_INVALID_PARAMETER;
@@ -598,61 +726,90 @@ FrameBufferBltLibVideoToVideo (
 
   WidthInBytes = Width * Configure->BytesPerPixel;
 
-  Offset = (SourceY * Configure->PixelsPerScanLine) + SourceX;
-  Offset = Configure->BytesPerPixel * Offset;
-  Source = Configure->FrameBuffer + Offset;
+  //
+  // If no rotation: keep original memmove-style copy
+  //
+  if (GetFbRotation() == FbRotNone) {
+    Offset = (SourceY * Configure->PixelsPerScanLine) + SourceX;
+    Offset = Configure->BytesPerPixel * Offset;
+    Source = Configure->FrameBuffer + Offset;
 
-  Offset = (DestinationY * Configure->PixelsPerScanLine) + DestinationX;
-  Offset = Configure->BytesPerPixel * Offset;
-  Destination = Configure->FrameBuffer + Offset;
+    Offset = (DestinationY * Configure->PixelsPerScanLine) + DestinationX;
+    Offset = Configure->BytesPerPixel * Offset;
+    Destination = Configure->FrameBuffer + Offset;
 
-  LineStride = Configure->BytesPerPixel * Configure->PixelsPerScanLine;
-  if (Destination > Source) {
-    //
-    // Copy from last line to avoid source is corrupted by copying
-    //
-    Source += Height * LineStride;
-    Destination += Height * LineStride;
-    LineStride = -LineStride;
+    LineStride = Configure->BytesPerPixel * Configure->PixelsPerScanLine;
+    if (Destination > Source) {
+      //
+      // Copy from last line to avoid source is corrupted by copying
+      //
+      Source += Height * LineStride;
+      Destination += Height * LineStride;
+      LineStride = -LineStride;
+    }
+
+    while (Height-- > 0) {
+      CopyMem (Destination, Source, WidthInBytes);
+
+      Source += LineStride;
+      Destination += LineStride;
+    }
+
+    return RETURN_SUCCESS;
   }
 
-  while (Height-- > 0) {
-    CopyMem (Destination, Source, WidthInBytes);
+  //
+  // Rotation != 0: do a safe copy using a line scratch buffer to avoid overlap issues,
+  // mapping src->phys and dst->phys for each pixel.
+  //
+  {
+    FB_ROTATION Rot = GetFbRotation();
+    UINT8 *FbBase = Configure->FrameBuffer;
+    UINT32 Bpp = Configure->BytesPerPixel;
+    UINT32 PSL = Configure->PixelsPerScanLine;
+    UINT32 *Line = AllocatePool (Width * sizeof (UINT32));
+    if (Line == NULL) {
+      return RETURN_OUT_OF_RESOURCES;
+    }
 
-    Source += LineStride;
-    Destination += LineStride;
+    for (UINTN row = 0; row < Height; ++row) {
+      // read logical source row into Line[]
+      for (UINTN col = 0; col < Width; ++col) {
+        INT32 Xs, Ys;
+        MapLogicalToPhysical (Rot, Configure->Width, Configure->Height,
+                              (INT32)(SourceX + col),
+                              (INT32)(SourceY + row),
+                              &Xs, &Ys);
+        UINT8 *S = PixelPtrPhys (FbBase, Bpp, PSL, Xs, Ys);
+        UINT32 v = 0;
+        for (UINTN b = 0; b < Bpp; ++b) {
+          ((UINT8*)&v)[b] = S[b];
+        }
+        Line[col] = v;
+      }
+
+      // write logical destination row from Line[]
+      for (UINTN col = 0; col < Width; ++col) {
+        INT32 Xd, Yd;
+        MapLogicalToPhysical (Rot, Configure->Width, Configure->Height,
+                              (INT32)(DestinationX + col),
+                              (INT32)(DestinationY + row),
+                              &Xd, &Yd);
+        UINT8 *D = PixelPtrPhys (FbBase, Bpp, PSL, Xd, Yd);
+        UINT32 v = Line[col];
+        for (UINTN b = 0; b < Bpp; ++b) {
+          D[b] = ((UINT8*)&v)[b];
+        }
+      }
+    }
+
+    FreePool (Line);
   }
 
   return RETURN_SUCCESS;
 }
 
-/**
-  Performs a UEFI Graphics Output Protocol Blt operation.
-
-  @param[in]     Configure    Pointer to a configuration which was successfully
-                              created by FrameBufferBltConfigure ().
-  @param[in,out] BltBuffer    The data to transfer to screen.
-  @param[in]     BltOperation The operation to perform.
-  @param[in]     SourceX      The X coordinate of the source for BltOperation.
-  @param[in]     SourceY      The Y coordinate of the source for BltOperation.
-  @param[in]     DestinationX The X coordinate of the destination for
-                              BltOperation.
-  @param[in]     DestinationY The Y coordinate of the destination for
-                              BltOperation.
-  @param[in]     Width        The width of a rectangle in the blt rectangle
-                              in pixels.
-  @param[in]     Height       The height of a rectangle in the blt rectangle
-                              in pixels.
-  @param[in]     Delta        Not used for EfiBltVideoFill and
-                              EfiBltVideoToVideo operation. If a Delta of 0
-                              is used, the entire BltBuffer will be operated
-                              on. If a subrectangle of the BltBuffer is
-                              used, then Delta represents the number of
-                              bytes in a row of the BltBuffer.
-
-  @retval RETURN_INVALID_PARAMETER Invalid parameter were passed in.
-  @retval RETURN_SUCCESS           The Blt operation was performed successfully.
-**/
+/* FrameBufferBlt() dispatcher unchanged: it calls the above functions */
 RETURN_STATUS
 EFIAPI
 FrameBufferBlt (

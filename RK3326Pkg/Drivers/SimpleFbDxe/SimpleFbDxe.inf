@@ -45,6 +45,7 @@
 [Pcd]
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoVerticalResolution
+  gRK3326PkgTokenSpaceGuid.PcdDisplayRotation
 
 [Depex]
   gEfiCpuArchProtocolGuid

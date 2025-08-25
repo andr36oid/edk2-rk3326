@@ -181,14 +181,14 @@ DisplayBlt
   // doing this operation.
   //
   Tpl = gBS->RaiseTPL (TPL_NOTIFY);
-  Status = FrameBufferBlt (
-             mFrameBufferBltLibConfigure,
-             BltBuffer,
-             BltOperation,
-             SourceX, SourceY,
-             DestinationX, DestinationY, Width, Height,
-             Delta
-             );
+        Status = FrameBufferBlt (
+                   mFrameBufferBltLibConfigure,
+                   BltBuffer,
+                   BltOperation,
+                   SourceX, SourceY,
+                   DestinationX, DestinationY, Width, Height,
+                   Delta
+                   );
   gBS->RestoreTPL (Tpl);
 
   // zhuowei: hack: flush the cache manually since my memory maps are still broken
@@ -216,6 +216,7 @@ SimpleFbDxeInitialize
     UINT32              MipiFrameBufferAddr     = FixedPcdGet32(PcdMipiFrameBufferAddress);
     UINT32              MipiFrameBufferWidth    = FixedPcdGet32(PcdMipiFrameBufferWidth);
     UINT32              MipiFrameBufferHeight   = FixedPcdGet32(PcdMipiFrameBufferHeight);
+    UINT16              Rotation                = PcdGet16 (PcdDisplayRotation);
 
     /* Sanity check */
     if (MipiFrameBufferAddr == 0 || MipiFrameBufferWidth == 0 || MipiFrameBufferHeight == 0)
@@ -257,9 +258,20 @@ SimpleFbDxeInitialize
     mDisplay.Mode->MaxMode = 1;
     mDisplay.Mode->Mode = 0;
     mDisplay.Mode->Info->Version = 0;
-
-    mDisplay.Mode->Info->HorizontalResolution = MipiFrameBufferWidth;
-    mDisplay.Mode->Info->VerticalResolution = MipiFrameBufferHeight;
+    switch(Rotation)
+    {
+      case 90:
+      case 270:
+        mDisplay.Mode->Info->HorizontalResolution = MipiFrameBufferHeight;
+        mDisplay.Mode->Info->VerticalResolution = MipiFrameBufferWidth;
+        break;
+      case 0:
+      case 180:
+      default:
+        mDisplay.Mode->Info->HorizontalResolution = MipiFrameBufferWidth;
+        mDisplay.Mode->Info->VerticalResolution = MipiFrameBufferHeight;
+        break;
+    }
 
     /* SimpleFB runs on a8r8g8b8 (VIDEO_BPP32) for DB410c */
     UINT32 LineLength = MipiFrameBufferWidth * VNBYTES(VIDEO_BPP32);
