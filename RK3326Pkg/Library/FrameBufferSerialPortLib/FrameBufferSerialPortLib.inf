@@ -1,0 +1,31 @@
+[Defines]
+  INF_VERSION    = 0x00010005
+  BASE_NAME      = FrameBufferSerialPortLib
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = SerialPortLib
+
+[Sources.common]
+  FrameBufferSerialPortLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+  RK3326Pkg/RK3326Pkg.dec
+
+[LibraryClasses]
+  ArmLib
+  PcdLib
+  IoLib
+  HobLib
+  CompilerIntrinsicsLib
+  CacheMaintenanceLib
+  TimerLib
+  
+[Pcd]
+  gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferAddress
+  gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferWidth
+  gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferHeight
+  gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp
+  gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleWidth
+  gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleHeight

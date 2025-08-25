@@ -1,4 +1,4 @@
-Attempt to create a minimal EDK2 for Exynos 7885 devices
+Attempt to create a minimal EDK2 for RK3326 devices
 
 ## Status
 Boots to UEFI Shell.
