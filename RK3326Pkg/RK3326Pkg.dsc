@@ -89,6 +89,9 @@
 
   # SoC/device specific Libraries
   GpioLib|RK3326Pkg/Library/GpioLib/GpioLib.inf
+  KeypadDeviceHelperLib|RK3326Pkg/Library/KeypadDeviceHelperLib/KeypadDeviceHelperLib.inf
+  KeypadDeviceImplLib|RK3326Pkg/Library/KeypadDeviceImplLib/KeypadDeviceImplLib.inf
+
 [LibraryClasses.common.SEC]
   PrePiLib|EmbeddedPkg/Library/PrePiLib/PrePiLib.inf
   ExtractGuidedSectionLib|EmbeddedPkg/Library/PrePiExtractGuidedSectionLib/PrePiExtractGuidedSectionLib.inf
@@ -192,6 +195,10 @@
   MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
 
   MdeModulePkg/Universal/PCD/Dxe/Pcd.inf
+
+  # SoC Drivers
+  RK3326Pkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf
+  RK3326Pkg/Drivers/KeypadDxe/KeypadDxe.inf
 
   #
   # Virtual Keyboard

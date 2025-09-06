@@ -140,6 +140,10 @@ READ_LOCK_STATUS   = TRUE
   INF RK3326Pkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
   INF RK3326Pkg/Drivers/LogoDxe/LogoDxe.inf
 
+  # SoC Dxes
+  INF RK3326Pkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf
+  INF RK3326Pkg/Drivers/KeypadDxe/KeypadDxe.inf
+
   #
   # USB Host Support
   #

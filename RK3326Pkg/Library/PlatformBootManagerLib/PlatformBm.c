@@ -638,7 +638,6 @@ PlatformRegisterOptionsAndKeys (
 {
   EFI_STATUS                    Status;
   EFI_INPUT_KEY                 Enter;
-  EFI_INPUT_KEY                 F2;
   EFI_INPUT_KEY                 Esc;
   EFI_BOOT_MANAGER_LOAD_OPTION  BootOption;
 
@@ -653,22 +652,13 @@ PlatformRegisterOptionsAndKeys (
   ASSERT_EFI_ERROR (Status);
 
   //
-  // Map F2 and ESC to Boot Manager Menu
+  // Map ESC to Boot Manager Menu
   //
-  F2.ScanCode     = SCAN_F2;
-  F2.UnicodeChar  = CHAR_NULL;
+
   Esc.ScanCode    = SCAN_ESC;
   Esc.UnicodeChar = CHAR_NULL;
   Status          = EfiBootManagerGetBootManagerMenu (&BootOption);
   ASSERT_EFI_ERROR (Status);
-  Status = EfiBootManagerAddKeyOptionVariable (
-             NULL,
-             (UINT16)BootOption.OptionNumber,
-             0,
-             &F2,
-             NULL
-             );
-  ASSERT (Status == EFI_SUCCESS || Status == EFI_ALREADY_STARTED);
   Status = EfiBootManagerAddKeyOptionVariable (
              NULL,
              (UINT16)BootOption.OptionNumber,
@@ -768,11 +758,6 @@ PlatformBootManagerBeforeConsole (
     (EFI_DEVICE_PATH_PROTOCOL *)&mSerialConsole,
     NULL
     );
-
-  //
-  // Register platform-specific boot options and keyboard shortcuts.
-  //
-  PlatformRegisterOptionsAndKeys ();
 }
 
 STATIC
@@ -1031,9 +1016,14 @@ PlatformBootManagerAfterConsole (
   //
   // Register UEFI Shell
   //
-  Key.ScanCode    = SCAN_NULL;
-  Key.UnicodeChar = L's';
+  Key.ScanCode    = SCAN_F2;
+  Key.UnicodeChar = CHAR_NULL;
   PlatformRegisterFvBootOption (&gUefiShellFileGuid, L"UEFI Shell", 0, &Key);
+
+  //
+  // Register platform-specific boot options and keyboard shortcuts.
+  //
+  PlatformRegisterOptionsAndKeys ();
 }
 
 /**

@@ -60,7 +60,7 @@ static ARM_MEMORY_REGION_DESCRIPTOR_EX gDeviceMemoryDescriptorEx[] = {
 */
 
 //--------------------- Register ---------------------
-    //{"Periphs",           0x00000000, 0x15000000,  AddMem, MEM_RES, UNCACHEABLE,  RtCode,   DEVICE},
+  {"Periphs",           0xF0000000, 0x15000000,  AddMem, MEM_RES, UNCACHEABLE,  RtCode,   DEVICE},
 
 //--------------------- DDR --------------------- */
 
