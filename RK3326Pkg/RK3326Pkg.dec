@@ -50,3 +50,10 @@
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleWidth|1080|UINT32|0x0000a404
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleHeight|1920|UINT32|0x0000a405 
   gRK3326PkgTokenSpaceGuid.PcdDisplayRotation|0|UINT16|0x00000807
+
+  # Pcds for MSHC
+  gRK3326PkgTokenSpaceGuid.PcdMshcDxeBaseAddress|0xff370000|UINT32|0x00000010
+  gRK3326PkgTokenSpaceGuid.PcdMshcDxeMaxClockFreqInHz|208000000|UINT32|0x00000011
+  gRK3326PkgTokenSpaceGuid.PcdMshcDxeFifoDepth|0x100|UINT32|0x00000012
+  gRK3326PkgTokenSpaceGuid.PcdMshcDxePwrEnUsed|FALSE|BOOLEAN|0x00000013
+  gRK3326PkgTokenSpaceGuid.PcdMshcDxePwrEnInverted|FALSE|BOOLEAN|0x00000014

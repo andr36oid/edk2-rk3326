@@ -89,6 +89,8 @@
 
   # SoC/device specific Libraries
   GpioLib|RK3326Pkg/Library/GpioLib/GpioLib.inf
+  CruLib|RK3326Pkg/Library/CruLib/CruLib.inf
+  
   KeypadDeviceHelperLib|RK3326Pkg/Library/KeypadDeviceHelperLib/KeypadDeviceHelperLib.inf
   KeypadDeviceImplLib|RK3326Pkg/Library/KeypadDeviceImplLib/KeypadDeviceImplLib.inf
 
@@ -199,6 +201,12 @@
   # SoC Drivers
   RK3326Pkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf
   RK3326Pkg/Drivers/KeypadDxe/KeypadDxe.inf
+
+  #
+  # SD
+  #
+  EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf
+  RK3326Pkg/Drivers/MshcDxe/MshcDxe.inf
 
   #
   # Virtual Keyboard

@@ -61,14 +61,14 @@ typedef enum {
 } GPIO_PIN_PULL;
 
 typedef enum {
-  GPIO_PIN_DRIVE_DEFAULT = 0xFF,
-  GPIO_PIN_DRIVE_DISABLE = 0x0,
-  GPIO_PIN_DRIVE_0       = 0x1,
-  GPIO_PIN_DRIVE_1       = 0x3,
-  GPIO_PIN_DRIVE_2       = 0x7,
-  GPIO_PIN_DRIVE_3       = 0xF,
-  GPIO_PIN_DRIVE_4       = 0x1F,
-  GPIO_PIN_DRIVE_5       = 0x3F
+  GPIO_PIN_DRIVE_DEFAULT = 0xFF,  // GPIO_PIN_DRIVE_DEFAULT → no pull, 8mA
+  GPIO_PIN_DRIVE_DISABLE = 0x0,   // GPIO_PIN_DRIVE_DISABLE → no pull, 4mA
+  GPIO_PIN_DRIVE_0       = 0x1,   // GPIO_PIN_DRIVE_0       → no pull, 4mA
+  GPIO_PIN_DRIVE_1       = 0x3,   // GPIO_PIN_DRIVE_1       → no pull, 8mA
+  GPIO_PIN_DRIVE_2       = 0x7,   // GPIO_PIN_DRIVE_2       → no pull, 12mA
+  GPIO_PIN_DRIVE_3       = 0xF,   // GPIO_PIN_DRIVE_3       → pull-up, 8mA
+  GPIO_PIN_DRIVE_4       = 0x1F,  // GPIO_PIN_DRIVE_4       → pull-up, 12mA
+  GPIO_PIN_DRIVE_5       = 0x3F   // GPIO_PIN_DRIVE_5       → pull-up, 16mA
 } GPIO_PIN_DRIVE;
 
 typedef enum {
