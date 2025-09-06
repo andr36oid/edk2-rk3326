@@ -87,6 +87,8 @@
   MemoryInitPeiLib|RK3326Pkg/Library/MemoryInitPeiLib/PeiMemoryAllocationLib.inf
   PlatformPeiLib|RK3326Pkg/Library/PlatformPeiLib/PlatformPeiLib.inf
 
+  # SoC/device specific Libraries
+  GpioLib|RK3326Pkg/Library/GpioLib/GpioLib.inf
 [LibraryClasses.common.SEC]
   PrePiLib|EmbeddedPkg/Library/PrePiLib/PrePiLib.inf
   ExtractGuidedSectionLib|EmbeddedPkg/Library/PrePiExtractGuidedSectionLib/PrePiExtractGuidedSectionLib.inf
