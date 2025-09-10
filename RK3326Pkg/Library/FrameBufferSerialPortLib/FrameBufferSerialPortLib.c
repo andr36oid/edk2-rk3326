@@ -4,7 +4,7 @@
 #include <Library/ArmLib.h>
 #include <Library/CacheMaintenanceLib.h>
 #include <Library/HobLib.h>
-#include <Library/SerialPortLib.h>
+#include <Library/FbSerialPortLib.h>
 
 #include <Resources/font5x12.h>
 #include <Resources/FbColor.h>
@@ -14,7 +14,7 @@
 // 1000000 = 1s
 //  500000 = 0.5s
 //  100000 = 0.1s
-UINTN delay = 20000; // 0.003s
+UINTN delay = 200; // 0.003s
 
 FBCON_POSITION m_Position;
 FBCON_POSITION m_MaxPosition;
@@ -363,17 +363,22 @@ EFIAPI
 SerialPortWrite
 (
 	IN UINT8     *Buffer,
-	IN UINTN     NumberOfBytes
+	IN UINTN     NumberOfBytes,
+	IN UINTN 	 Color
 )
 {
 	UINT8* CONST Final = &Buffer[NumberOfBytes];
+	UINTN  CurrentForeground = m_Color.Foreground;
 	UINTN  InterruptState = ArmGetInterruptState();
 	ArmDisableInterrupts();
+	m_Color.Foreground = Color;
 
 	while (Buffer < Final)
 	{
 		FbConPutCharWithFactor(*Buffer++, FBCON_COMMON_MSG, SCALE_FACTOR);
 	}
+
+	m_Color.Foreground = CurrentForeground;
 
 	if (InterruptState) ArmEnableInterrupts();
 	return NumberOfBytes;
