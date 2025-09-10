@@ -23,7 +23,7 @@
 #include "PrePi.h"
 
 UINT64  mSystemMemoryEnd = FixedPcdGet64 (PcdSystemMemoryBase) +
-                           FixedPcdGet64 (PcdSystemMemorySize) - 1;
+                           0x06200000 - 1;
 
 UINTN Width = FixedPcdGet32(PcdMipiFrameBufferWidth);
 UINTN Height = FixedPcdGet32(PcdMipiFrameBufferHeight);

@@ -243,6 +243,10 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdInstallAcpiSdtProtocol|TRUE
 
 [PcdsFixedAtBuild.common]
+
+  # Size of the region used by UEFI in permanent memory (Reserved 64MB)
+  gArmPlatformTokenSpaceGuid.PcdSystemMemoryUefiRegionSize|0x04000000
+  
   #
   # IO is mapped to memory space, so we use the same size of
   # PcdPrePiCpuMemorySize

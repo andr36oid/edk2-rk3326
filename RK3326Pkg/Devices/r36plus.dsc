@@ -14,7 +14,7 @@
 [PcdsFixedAtBuild.common]
   # System Memory (1.5GB)
   gArmTokenSpaceGuid.PcdSystemMemoryBase|0x00000000
-  gArmTokenSpaceGuid.PcdSystemMemorySize|0x3de00000
+  gArmTokenSpaceGuid.PcdSystemMemorySize|0x40000000
   # Framebuffer (720x1280)
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferAddress|0x3de00000
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferWidth|720

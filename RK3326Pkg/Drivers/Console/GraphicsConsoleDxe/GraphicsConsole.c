@@ -32,7 +32,7 @@ GRAPHICS_CONSOLE_DEV  mGraphicsConsoleDevTemplate = {
     EFI_TEXT_ATTR (EFI_LIGHTGRAY,          EFI_BLACK),
     0,
     0,
-    FALSE
+    TRUE
   },
   (GRAPHICS_CONSOLE_MODE_DATA *)NULL,
   (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)NULL
@@ -88,7 +88,7 @@ EFI_GRAPHICS_OUTPUT_BLT_PIXEL  mGraphicsEfiColors[16] = {
 EFI_NARROW_GLYPH  mCursorGlyph = {
   0x0000,
   0x00,
-  { 0x00,0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF }
+  { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF }
 };
 
 CHAR16  SpaceStr[] = { NARROW_CHAR, ' ', 0 };
@@ -160,11 +160,11 @@ GraphicsConsoleControllerDriverSupported (
                   );
   if (!EFI_ERROR (Status)) {
     gBS->CloseProtocol (
-           Controller,
-           &gEfiDevicePathProtocolGuid,
-           This->DriverBindingHandle,
-           Controller
-           );
+          Controller,
+          &gEfiDevicePathProtocolGuid,
+          This->DriverBindingHandle,
+          Controller
+          );
   } else {
     goto Error;
   }
@@ -180,11 +180,11 @@ GraphicsConsoleControllerDriverSupported (
 Error:
   if (GraphicsOutput != NULL) {
     gBS->CloseProtocol (
-           Controller,
-           &gEfiGraphicsOutputProtocolGuid,
-           This->DriverBindingHandle,
-           Controller
-           );
+          Controller,
+          &gEfiGraphicsOutputProtocolGuid,
+          This->DriverBindingHandle,
+          Controller
+          );
   }
 
   return Status;
@@ -222,8 +222,8 @@ InitializeGraphicsConsoleTextMode (
   UINTN                       ValidCount;
   UINTN                       ValidIndex;
   UINTN                       MaxColumns;
-  UINTN                       MaxRows;
-
+  UINTN                       MaxRows;  
+  
   if ((TextModeCount == NULL) || (TextModeData == NULL)) {
     return EFI_INVALID_PARAMETER;
   }
@@ -259,37 +259,39 @@ InitializeGraphicsConsoleTextMode (
   // Reserve 2 modes for 80x25, 80x50 of graphics console.
   //
   NewModeBuffer = AllocateZeroPool (sizeof (GRAPHICS_CONSOLE_MODE_DATA) * (Count + 2));
-  if (NewModeBuffer == NULL) {
-    ASSERT (NewModeBuffer != NULL);
-    return EFI_OUT_OF_RESOURCES;
-  }
+  ASSERT (NewModeBuffer != NULL);
 
   //
   // Mode 0 and mode 1 is for 80x25, 80x50 according to UEFI spec.
+  // But this is a handheld console anyway...
   //
-  ValidCount = 0;
+  ValidCount = 0;  
 
-  NewModeBuffer[ValidCount].Columns       = 80;
-  NewModeBuffer[ValidCount].Rows          = 25;
+  NewModeBuffer[ValidCount].Columns       = 60;
+  NewModeBuffer[ValidCount].Rows          = 44;
   NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
   NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
   NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
+  NewModeBuffer[ValidCount].DeltaX        = 0;
+  NewModeBuffer[ValidCount].DeltaY        = 0;     
   NewModeBuffer[ValidCount].DeltaX        = (HorizontalResolution - (NewModeBuffer[ValidCount].Columns * EFI_GLYPH_WIDTH)) >> 1;
-  NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (NewModeBuffer[ValidCount].Rows * EFI_GLYPH_HEIGHT)) >> 1;
+  NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (NewModeBuffer[ValidCount].Rows * EFI_GLYPH_HEIGHT)) >> 1;      
   ValidCount++;
 
   if ((MaxColumns >= 80) && (MaxRows >= 50)) {
     NewModeBuffer[ValidCount].Columns = 80;
     NewModeBuffer[ValidCount].Rows    = 50;
+    NewModeBuffer[ValidCount].DeltaX        = 0;
+    NewModeBuffer[ValidCount].DeltaY        = 0;     
     NewModeBuffer[ValidCount].DeltaX  = (HorizontalResolution - (80 * EFI_GLYPH_WIDTH)) >> 1;
-    NewModeBuffer[ValidCount].DeltaY  = (VerticalResolution - (50 * EFI_GLYPH_HEIGHT)) >> 1;
+    NewModeBuffer[ValidCount].DeltaY  = (VerticalResolution - (50 * EFI_GLYPH_HEIGHT)) >> 1;    
   }
 
   NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
   NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
   NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
   ValidCount++;
-
+  
   //
   // Start from mode 2 to put the valid mode other than 80x25 and 80x50 in the output mode buffer.
   //
@@ -320,14 +322,16 @@ InitializeGraphicsConsoleTextMode (
       NewModeBuffer[ValidCount].GopWidth      = HorizontalResolution;
       NewModeBuffer[ValidCount].GopHeight     = VerticalResolution;
       NewModeBuffer[ValidCount].GopModeNumber = GopModeNumber;
+      NewModeBuffer[ValidCount].DeltaX        = 0;
+      NewModeBuffer[ValidCount].DeltaY        = 0;     
       NewModeBuffer[ValidCount].DeltaX        = (HorizontalResolution - (NewModeBuffer[ValidCount].Columns * EFI_GLYPH_WIDTH)) >> 1;
       NewModeBuffer[ValidCount].DeltaY        = (VerticalResolution - (NewModeBuffer[ValidCount].Rows * EFI_GLYPH_HEIGHT)) >> 1;
       ValidCount++;
     }
   }
-
+ 
   DEBUG_CODE_BEGIN ();
-  for (Index = 0; Index < ValidCount; Index++) {
+    for (Index = 0; Index < ValidCount; Index++) {
     DEBUG ((
       DEBUG_INFO,
       "Graphics - Mode %d, Column = %d, Row = %d\n",
@@ -335,10 +339,10 @@ InitializeGraphicsConsoleTextMode (
       NewModeBuffer[Index].Columns,
       NewModeBuffer[Index].Rows
       ));
-  }
+    }
 
   DEBUG_CODE_END ();
-
+  
   //
   // Return valid mode count and mode information buffer.
   //
@@ -349,7 +353,7 @@ InitializeGraphicsConsoleTextMode (
 
 /**
   Start this driver on Controller by opening Graphics Output protocol
-  and installing Simple Text Out protocol on Controller.
+and installing Simple Text Out protocol on Controller.
 
   @param  This                 Protocol instance pointer.
   @param  Controller           Handle of device to bind driver to
@@ -378,13 +382,7 @@ GraphicsConsoleControllerDriverStart (
   EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE     *Mode;
   UINTN                                 SizeOfInfo;
   EFI_GRAPHICS_OUTPUT_MODE_INFORMATION  *Info;
-  INT32                                 PreferMode;
-  INT32                                 Index;
-  UINTN                                 Column;
-  UINTN                                 Row;
-  UINTN                                 DefaultColumn;
-  UINTN                                 DefaultRow;
-
+  
   ModeNumber = 0;
 
   //
@@ -424,16 +422,16 @@ GraphicsConsoleControllerDriverStart (
     if ((HorizontalResolution == 0x0) || (VerticalResolution == 0x0)) {
       //
       // Find the highest resolution which GOP supports.
-      //
+      //    
       MaxMode = Private->GraphicsOutput->Mode->MaxMode;
-
+      
       for (ModeIndex = 0; (UINTN)ModeIndex < MaxMode; ModeIndex++) {
         Status = Private->GraphicsOutput->QueryMode (
-                                            Private->GraphicsOutput,
-                                            ModeIndex,
-                                            &SizeOfInfo,
-                                            &Info
-                                            );
+                           Private->GraphicsOutput,
+                           ModeIndex,
+                           &SizeOfInfo,
+                           &Info
+                           );
         if (!EFI_ERROR (Status)) {
           if ((Info->HorizontalResolution > HorizontalResolution) ||
               ((Info->HorizontalResolution == HorizontalResolution) && (Info->VerticalResolution > VerticalResolution)))
@@ -456,11 +454,11 @@ GraphicsConsoleControllerDriverStart (
       // Use user-defined resolution
       //
       Status = CheckModeSupported (
-                 Private->GraphicsOutput,
-                 HorizontalResolution,
-                 VerticalResolution,
-                 &ModeNumber
-                 );
+                   Private->GraphicsOutput,
+                   HorizontalResolution,
+                   VerticalResolution,
+                   &ModeNumber
+                   );
       if (EFI_ERROR (Status)) {
         //
         // if not supporting current mode, try 800x600 which is required by UEFI/EFI spec
@@ -468,11 +466,11 @@ GraphicsConsoleControllerDriverStart (
         HorizontalResolution = 800;
         VerticalResolution   = 600;
         Status               = CheckModeSupported (
-                                 Private->GraphicsOutput,
-                                 HorizontalResolution,
-                                 VerticalResolution,
-                                 &ModeNumber
-                                 );
+                     Private->GraphicsOutput,
+                     HorizontalResolution,
+                     VerticalResolution,
+                     &ModeNumber
+                     );
         Mode = Private->GraphicsOutput->Mode;
         if (EFI_ERROR (Status) && (Mode->MaxMode != 0)) {
           //
@@ -522,35 +520,16 @@ GraphicsConsoleControllerDriverStart (
   //
   Private->SimpleTextOutputMode.MaxMode = (INT32)MaxMode;
 
-  //
-  // Initialize the Mode of graphics console devices
-  //
-  PreferMode    = -1;
-  DefaultColumn = PcdGet32 (PcdConOutColumn);
-  DefaultRow    = PcdGet32 (PcdConOutRow);
-  Column        = 0;
-  Row           = 0;
-  for (Index = 0; Index < (INT32)MaxMode; Index++) {
-    if ((DefaultColumn != 0) && (DefaultRow != 0)) {
-      if ((Private->ModeData[Index].Columns == DefaultColumn) &&
-          (Private->ModeData[Index].Rows == DefaultRow))
-      {
-        PreferMode = Index;
-        break;
-      }
-    } else {
-      if ((Private->ModeData[Index].Columns > Column) &&
-          (Private->ModeData[Index].Rows > Row))
-      {
-        Column     = Private->ModeData[Index].Columns;
-        Row        = Private->ModeData[Index].Rows;
-        PreferMode = Index;
-      }
+  DEBUG_CODE_BEGIN ();
+    Status = GraphicsConsoleConOutSetMode (&Private->SimpleTextOutput, 0);
+    if (EFI_ERROR (Status)) {
+      goto Error;
     }
-  }
-
-  Private->SimpleTextOutput.Mode->Mode = (INT32)PreferMode;
-  DEBUG ((DEBUG_INFO, "Graphics Console Started, Mode: %d\n", PreferMode));
+    Status = GraphicsConsoleConOutOutputString (&Private->SimpleTextOutput, (CHAR16 *)L"Graphics Console Started\n\r");
+    if (EFI_ERROR (Status)) {
+      goto Error;
+    }  
+  DEBUG_CODE_END ();
 
   //
   // Install protocol interfaces for the Graphics Console device.
@@ -648,11 +627,11 @@ GraphicsConsoleControllerDriverStop (
     //
     if (Private->GraphicsOutput != NULL) {
       gBS->CloseProtocol (
-             Controller,
-             &gEfiGraphicsOutputProtocolGuid,
-             This->DriverBindingHandle,
-             Controller
-             );
+            Controller,
+            &gEfiGraphicsOutputProtocolGuid,
+            This->DriverBindingHandle,
+            Controller
+            );
     }
 
     if (Private->LineBuffer != NULL) {
@@ -710,11 +689,11 @@ CheckModeSupported (
 
   for (ModeNumber = 0; ModeNumber < MaxMode; ModeNumber++) {
     Status = GraphicsOutput->QueryMode (
-                               GraphicsOutput,
-                               ModeNumber,
-                               &SizeOfInfo,
-                               &Info
-                               );
+                       GraphicsOutput,
+                       ModeNumber,
+                       &SizeOfInfo,
+                       &Info
+                       );
     if (!EFI_ERROR (Status)) {
       if ((Info->HorizontalResolution == HorizontalResolution) &&
           (Info->VerticalResolution == VerticalResolution))
@@ -869,7 +848,7 @@ GraphicsConsoleConOutOutputString (
   }
 
   Status = EFI_SUCCESS;
-
+  
   OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
   //
   // Current mode
@@ -937,33 +916,33 @@ GraphicsConsoleConOutOutputString (
           // Scroll Screen Up One Row
           //
           GraphicsOutput->Blt (
-                            GraphicsOutput,
-                            NULL,
-                            EfiBltVideoToVideo,
-                            DeltaX,
-                            DeltaY + EFI_GLYPH_HEIGHT,
-                            DeltaX,
-                            DeltaY,
-                            Width,
-                            Height,
-                            Delta
-                            );
+                    GraphicsOutput,
+                    NULL,
+                    EfiBltVideoToVideo,
+                    DeltaX,
+                    DeltaY + EFI_GLYPH_HEIGHT,
+                    DeltaX,
+                    DeltaY,
+                    Width,
+                    Height,
+                    Delta
+                    );
 
           //
           // Print Blank Line at last line
           //
           GraphicsOutput->Blt (
-                            GraphicsOutput,
-                            &Background,
-                            EfiBltVideoFill,
-                            0,
-                            0,
-                            DeltaX,
-                            DeltaY + Height,
-                            Width,
-                            EFI_GLYPH_HEIGHT,
-                            Delta
-                            );
+                    GraphicsOutput,
+                    &Background,
+                    EfiBltVideoFill,
+                    0,
+                    0,
+                    DeltaX,
+                    DeltaY + Height,
+                    Width,
+                    EFI_GLYPH_HEIGHT,
+                    Delta
+                    );
         }
       } else {
         This->Mode->CursorRow++;
@@ -1204,7 +1183,7 @@ GraphicsConsoleConOutSetMode (
 
   Private        = GRAPHICS_CONSOLE_CON_OUT_DEV_FROM_THIS (This);
   GraphicsOutput = Private->GraphicsOutput;
-
+  
   //
   // Make sure the requested mode number is supported
   //
@@ -1212,7 +1191,7 @@ GraphicsConsoleConOutSetMode (
     Status = EFI_UNSUPPORTED;
     goto Done;
   }
-
+  
   ModeData = &(Private->ModeData[ModeNumber]);
 
   if ((ModeData->Columns <= 0) && (ModeData->Rows <= 0)) {
@@ -1281,17 +1260,17 @@ GraphicsConsoleConOutSetMode (
       // The current graphics mode is correct, so simply clear the entire display
       //
       Status = GraphicsOutput->Blt (
-                                 GraphicsOutput,
-                                 &mGraphicsEfiColors[0],
-                                 EfiBltVideoFill,
-                                 0,
-                                 0,
-                                 0,
-                                 0,
-                                 ModeData->GopWidth,
-                                 ModeData->GopHeight,
-                                 0
-                                 );
+                          GraphicsOutput,
+                          &mGraphicsEfiColors[0],
+                          EfiBltVideoFill,
+                          0,
+                          0,
+                          0,
+                          0,
+                          ModeData->GopWidth,
+                          ModeData->GopHeight,
+                          0
+                          );
     }
   }
 
@@ -1306,7 +1285,7 @@ GraphicsConsoleConOutSetMode (
   This->Mode->CursorColumn = 0;
   This->Mode->CursorRow    = 0;
 
-  FlushCursor (This);
+  FlushCursor (This);  
 
   Status = EFI_SUCCESS;
 
@@ -1387,7 +1366,7 @@ GraphicsConsoleConOutClearScreen (
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Foreground;
   EFI_GRAPHICS_OUTPUT_BLT_PIXEL  Background;
   EFI_TPL                        OldTpl;
-
+  
   if (This->Mode->Mode == -1) {
     //
     // If current mode is not valid, return error.
@@ -1404,17 +1383,17 @@ GraphicsConsoleConOutClearScreen (
   GetTextColors (This, &Foreground, &Background);
   if (GraphicsOutput != NULL) {
     Status = GraphicsOutput->Blt (
-                               GraphicsOutput,
-                               &Background,
-                               EfiBltVideoFill,
-                               0,
-                               0,
-                               0,
-                               0,
-                               ModeData->GopWidth,
-                               ModeData->GopHeight,
-                               0
-                               );
+                        GraphicsOutput,
+                        &Background,
+                        EfiBltVideoFill,
+                        0,
+                        0,
+                        0,
+                        0,
+                        ModeData->GopWidth,
+                        ModeData->GopHeight,
+                        0
+                        );
   } else {
     Status = EFI_UNSUPPORTED;
   }
@@ -1664,11 +1643,11 @@ DrawUnicodeWeightAtCursorN (
 
 /**
   Flush the cursor on the screen.
-
+  
   If CursorVisible is FALSE, nothing to do and return directly.
-  If CursorVisible is TRUE,
+  If CursorVisible is TRUE, 
      i) If the cursor shows on screen, it will be erased.
-    ii) If the cursor does not show on screen, it will be shown.
+    ii) If the cursor does not show on screen, it will be shown. 
 
   @param  This                  Protocol instance pointer.
 
@@ -1710,17 +1689,17 @@ FlushCursor (
   GlyphY = (CurrentMode->CursorRow * EFI_GLYPH_HEIGHT) + Private->ModeData[CurrentMode->Mode].DeltaY;
   if (GraphicsOutput != NULL) {
     GraphicsOutput->Blt (
-                      GraphicsOutput,
+              GraphicsOutput,
                       (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)BltChar,
-                      EfiBltVideoToBltBuffer,
-                      GlyphX,
-                      GlyphY,
-                      0,
-                      0,
-                      EFI_GLYPH_WIDTH,
-                      EFI_GLYPH_HEIGHT,
-                      EFI_GLYPH_WIDTH * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
-                      );
+              EfiBltVideoToBltBuffer,
+              GlyphX,
+              GlyphY,
+              0,
+              0,
+              EFI_GLYPH_WIDTH,
+              EFI_GLYPH_HEIGHT,
+              EFI_GLYPH_WIDTH * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
+              );
   }
 
   GetTextColors (This, &Foreground.Pixel, &Background.Pixel);
@@ -1738,17 +1717,17 @@ FlushCursor (
 
   if (GraphicsOutput != NULL) {
     GraphicsOutput->Blt (
-                      GraphicsOutput,
-                      (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)BltChar,
-                      EfiBltBufferToVideo,
-                      0,
-                      0,
-                      GlyphX,
-                      GlyphY,
-                      EFI_GLYPH_WIDTH,
-                      EFI_GLYPH_HEIGHT,
-                      EFI_GLYPH_WIDTH * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
-                      );
+              GraphicsOutput,
+              (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)BltChar,
+              EfiBltBufferToVideo,
+              0,
+              0,
+              GlyphX,
+              GlyphY,
+              EFI_GLYPH_WIDTH,
+              EFI_GLYPH_HEIGHT,
+              EFI_GLYPH_WIDTH * sizeof (EFI_GRAPHICS_OUTPUT_BLT_PIXEL)
+              );
   }
 
   return EFI_SUCCESS;
@@ -1807,10 +1786,7 @@ RegisterFontPackage (
 
   PackageLength = sizeof (EFI_HII_SIMPLE_FONT_PACKAGE_HDR) + mNarrowFontSize + 4;
   Package       = AllocateZeroPool (PackageLength);
-  if (Package == NULL) {
-    ASSERT (Package != NULL);
-    return;
-  }
+  ASSERT (Package != NULL);
 
   WriteUnaligned32 ((UINT32 *)Package, PackageLength);
   SimplifiedFont                       = (EFI_HII_SIMPLE_FONT_PACKAGE_HDR *)(Package + 4);
