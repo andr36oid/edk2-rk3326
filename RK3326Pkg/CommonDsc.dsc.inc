@@ -321,3 +321,7 @@
 [PcdsDynamicHii.common.DEFAULT]
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut|L"Timeout"|gEfiGlobalVariableGuid|0x0|3 # Variable: L"Timeout"
 
+  #
+  # ConfigDxe
+  #
+  gRK3326PkgTokenSpaceGuid.PcdSystemTableMode|L"SystemTableMode"|gConfigDxeFormSetGuid|0x0|0

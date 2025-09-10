@@ -25,7 +25,7 @@
   BUILD_TARGETS                  = DEBUG|RELEASE
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = RK3326Pkg/RK3326Pkg.fdf
-  DEFINE USE_SCREEN_FOR_SERIAL_OUTPUT = 0
+  DEFINE USE_SCREEN_FOR_SERIAL_OUTPUT = 1
 
 !include RK3326Pkg/CommonDsc.dsc.inc
 
@@ -47,6 +47,8 @@
   UefiBootManagerLib|MdeModulePkg/Library/UefiBootManagerLib/UefiBootManagerLib.inf
   PlatformBootManagerLib|RK3326Pkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
   CustomizedDisplayLib|MdeModulePkg/Library/CustomizedDisplayLib/CustomizedDisplayLib.inf
+
+  AcpiLib|EmbeddedPkg/Library/AcpiLib/AcpiLib.inf
 
   # UiApp dependencies
   ReportStatusCodeLib|MdeModulePkg/Library/DxeReportStatusCodeLib/DxeReportStatusCodeLib.inf
@@ -126,6 +128,11 @@
   #
   gArmTokenSpaceGuid.PcdGicDistributorBase|0xff131000
   gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase|0xff132000
+
+  gArmTokenSpaceGuid.PcdArmArchTimerSecIntrNum|29  # Secure physical
+  gArmTokenSpaceGuid.PcdArmArchTimerIntrNum|30     # Non-secure physical
+  gArmTokenSpaceGuid.PcdArmArchTimerHypIntrNum|26  # Hypervisor
+  gArmTokenSpaceGuid.PcdArmArchTimerVirtIntrNum|27 # Virtual
 
   # GUID of the UI app
   gEfiMdeModulePkgTokenSpaceGuid.PcdBootManagerMenuFile|{ 0x21, 0xaa, 0x2c, 0x46, 0x14, 0x76, 0x03, 0x45, 0x83, 0x6e, 0x8a, 0xb6, 0xf4, 0x66, 0x23, 0x31 }
@@ -240,6 +247,11 @@
   #
   EmbeddedPkg/Application/AndroidFastboot/AndroidFastbootApp.inf
 
+  #
+  # Config
+  #
+  RK3326Pkg/Drivers/ConfigDxe/ConfigDxe.inf
+
 
   #
   # FAT filesystem + GPT/MBR partitioning
@@ -253,9 +265,10 @@
   # ACPI Support
   #
   MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
-  MdeModulePkg/Universal/Acpi/AcpiPlatformDxe/AcpiPlatformDxe.inf
   MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.inf
+  RK3326Pkg/Drivers/PlatformAcpiDxe/PlatformAcpiDxe.inf
   RK3326Pkg/AcpiTables/AcpiTables.inf
+
 
   #
   # SMBIOS Support
