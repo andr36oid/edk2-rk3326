@@ -96,15 +96,15 @@ SMBIOS_TABLE_TYPE0 mBIOSInfoType0 = {
               //  VirtualMachineSupported              :1;
               //  ExtensionByte2Reserved               :3;
     },
-    0x01, // SystemBiosMajorRelease
-    0x05, // SystemBiosMinorRelease
+    0x00, // SystemBiosMajorRelease
+    0x01, // SystemBiosMinorRelease
     0xFF, // EmbeddedControllerFirmwareMajorRelease
     0xFF, // EmbeddedControllerFirmwareMinorRelease
 };
 
-CHAR8 *mBIOSInfoType0Strings[] = {"EDK2 authors", // Vendor String
+CHAR8 *mBIOSInfoType0Strings[] = {"Blue spoghet.", // Vendor String
                                   "1.0", // BiosVersion String
-                                  "2025/08/24", // BiosReleaseDate String
+                                  "2025/09/09", // BiosReleaseDate String
                                   NULL};
 
 /***********************************************************************
@@ -125,8 +125,8 @@ SMBIOS_TABLE_TYPE1 mSysInfoType1 = {
     6, // Family String
 };
 CHAR8 *mSysInfoType1Strings[] = {
-    "Game Console", "R50S", "R50S", "Unknown",
-    "R50S",          "Console",        NULL};
+    "Game Console", "R50S", "", "0bc52bb9-9473-4875-be2a-3973076c20e2",
+    "",          "Console",        NULL};
 
 /***********************************************************************
         SMBIOS data definition  TYPE2  Board Information
@@ -154,7 +154,7 @@ SMBIOS_TABLE_TYPE2 mBoardInfoType2 = {
     {0}                       // ContainedObjectHandles[1];
 };
 CHAR8 *mBoardInfoType2Strings[] = {
-    "Game Console", "R50S", "R50S", "Unknown", "", "", NULL};
+    "ROCKCHIP", "R50S", "", "0bc52bb9-9473-4875-be2a-3973076c20e2", "HL- v13", "", NULL};
 
 /***********************************************************************
         SMBIOS data definition  TYPE3  Enclosure Information
@@ -162,7 +162,7 @@ CHAR8 *mBoardInfoType2Strings[] = {
 SMBIOS_TABLE_TYPE3 mEnclosureInfoType3 = {
     {EFI_SMBIOS_TYPE_SYSTEM_ENCLOSURE, sizeof(SMBIOS_TABLE_TYPE3), 0},
     1,                         // Manufacturer String
-    MiscChassisTablet,         // Type;
+    MiscChassisTypeLapTop,     // Type;
     2,                         // Version String
     3,                         // SerialNumber String
     4,                         // AssetTag String
@@ -177,8 +177,13 @@ SMBIOS_TABLE_TYPE3 mEnclosureInfoType3 = {
     0,                         // ContainedElementRecordLength;
     {{0}},                     // ContainedElements[1];
 };
-CHAR8 *mEnclosureInfoType3Strings[] = {"R50S", "1", "Unknown", "",
-                                       NULL};
+CHAR8 *mEnclosureInfoType3Strings[] = {
+  "Rockchip", 
+  "Not Specified", 
+  "Not Specified", 
+  "Not Specified",
+  NULL
+};
 
 /***********************************************************************
         SMBIOS data definition  TYPE4  Processor Information
@@ -251,7 +256,7 @@ SMBIOS_TABLE_TYPE4 mProcessorInfoType4 = {
         0  // ProcessorVoltageIndicateLegacy      :1;
     },
     0,                     // ExternalClock;
-    1500,                  // MaxSpeed;
+    1200,                  // MaxSpeed;
     1200,                  // CurrentSpeed;
     0x41,                  // Status;
     ProcessorUpgradeOther, // ProcessorUpgrade;      ///< The enumeration value
@@ -262,16 +267,18 @@ SMBIOS_TABLE_TYPE4 mProcessorInfoType4 = {
     0,                     // SerialNumber;
     0,                     // AssetTag;
     4,                     // PartNumber;
-    FixedPcdGet32(PcdCoreCount), // CoreCount;
-    FixedPcdGet32(PcdCoreCount), // EnabledCoreCount;
-    FixedPcdGet32(PcdCoreCount), // ThreadCount;
-    0xA0,                        // ProcessorCharacteristics;
+    4, // CoreCount;
+    4, // EnabledCoreCount;
+    0, // ThreadCount;
+    0x8,                         // ProcessorCharacteristics;
     ProcessorFamilyARM,          // ARM Processor Family;
 };
 
 CHAR8 *mProcessorInfoType4Strings[] = {
-    "Socket", "Rockchip", "rk3326",
-    "rk3326", NULL};
+    "Socket",
+    "Rockchip Electronics Co., Ltd.", 
+    "Rockchip RK3326",
+    "RK3326", NULL};
 
 /***********************************************************************
         SMBIOS data definition  TYPE7  Cache Information
@@ -408,7 +415,7 @@ SMBIOS_TABLE_TYPE17 mMemDevInfoType17 = {
         0, // Unbuffered      :1;
         0, // Reserved1       :1;
     },
-    800, // Speed;
+    933,  // Speed;
     0,    // Manufacturer String
     0,    // SerialNumber String
     0,    // AssetTag String
@@ -656,7 +663,7 @@ VOID MemArrMapInfoUpdateSmbiosType19(VOID)
   mMemArrMapInfoType19.StartingAddress =
       FixedPcdGet32(PcdSystemMemoryBase) / 1024;
   mMemArrMapInfoType19.EndingAddress =
-      (FixedPcdGet32(PcdSystemMemorySize) + FixedPcdGet32(PcdSystemMemoryBase) -
+      (0x40000000 + FixedPcdGet32(PcdSystemMemoryBase) -
        1) /
       1024;
 

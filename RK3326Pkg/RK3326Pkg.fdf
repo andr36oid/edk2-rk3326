@@ -117,7 +117,7 @@ READ_LOCK_STATUS   = TRUE
   INF RK3326Pkg/Drivers/Console/TerminalDxe/TerminalDxe.inf
   INF MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
 
-  INF ArmPkg/Drivers/ArmGicDxe/ArmGicV2Dxe.inf
+  INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
   INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
 
   INF MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
@@ -164,12 +164,12 @@ READ_LOCK_STATUS   = TRUE
   #
   # USB Peripheral Support
   #
-  INF EmbeddedPkg/Drivers/AndroidFastbootTransportUsbDxe/FastbootTransportUsbDxe.inf
+  # INF EmbeddedPkg/Drivers/AndroidFastbootTransportUsbDxe/FastbootTransportUsbDxe.inf
 
   #
   # Fastboot
   #
-  INF EmbeddedPkg/Application/AndroidFastboot/AndroidFastbootApp.inf
+  # INF EmbeddedPkg/Application/AndroidFastboot/AndroidFastbootApp.inf
 
   #
   # FAT filesystem + GPT/MBR partitioning

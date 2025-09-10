@@ -128,6 +128,8 @@
   #
   gArmTokenSpaceGuid.PcdGicDistributorBase|0xff131000
   gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase|0xff132000
+  gArmTokenSpaceGuid.PcdGicRedistributorsBase|0xff132000
+
 
   gArmTokenSpaceGuid.PcdArmArchTimerSecIntrNum|29  # Secure physical
   gArmTokenSpaceGuid.PcdArmArchTimerIntrNum|30     # Non-secure physical
@@ -198,7 +200,7 @@
 
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
 
-  ArmPkg/Drivers/ArmGicDxe/ArmGicV2Dxe.inf
+  ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
   ArmPkg/Drivers/TimerDxe/TimerDxe.inf
 
   MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf
@@ -240,12 +242,12 @@
   #
   # USB Peripheral Support
   #
-  EmbeddedPkg/Drivers/AndroidFastbootTransportUsbDxe/FastbootTransportUsbDxe.inf
+  # EmbeddedPkg/Drivers/AndroidFastbootTransportUsbDxe/FastbootTransportUsbDxe.inf
 
   #
   # Fastboot
   #
-  EmbeddedPkg/Application/AndroidFastboot/AndroidFastbootApp.inf
+  # EmbeddedPkg/Application/AndroidFastboot/AndroidFastbootApp.inf
 
   #
   # Config

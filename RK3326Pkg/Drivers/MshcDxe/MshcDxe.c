@@ -320,7 +320,7 @@ SendCommand (
     Data = MmioRead32 (DWEMMC_RINTSTS);
 
     if (Status == EFI_SUCCESS && (Data & ErrMask) != 0) {
-      DEBUG ((DEBUG_INFO, "%a(): EFI_DEVICE_ERROR DWEMMC_RINTSTS=0x%x MmcCmd 0x%x(%d),Argument 0x%x\n",
+      DEBUG ((DEBUG_ERROR, "%a(): EFI_DEVICE_ERROR DWEMMC_RINTSTS=0x%x MmcCmd 0x%x(%d),Argument 0x%x\n",
           __func__, Data, MmcCmd, MmcCmd&0x3f, Argument));
       Status = EFI_DEVICE_ERROR;
       // Keep spinning until CMD done bit is set.
@@ -517,7 +517,7 @@ MshcReadBlockData (
   UINT32		TimeOut = 0;
   UINT32		value = 0;
 
-  DEBUG ((DW_DBG, "%a():\n", __func__));
+  //DEBUG ((DW_DBG, "%a():\n", __func__));
 
   ASSERT ((mMshcCommand & BIT_CMD_WRITE) == BIT_CMD_READ);
 
@@ -553,7 +553,7 @@ MshcReadBlockData (
     return EFI_DEVICE_ERROR;
   }
 
-  DEBUG((DW_DBG, "Sdmmc::SdmmcReadBlockData  DataLen=%d\n", DataLen));
+  //DEBUG((DW_DBG, "Sdmmc::SdmmcReadBlockData  DataLen=%d\n", DataLen));
   TimeOut = 1000000;
   while (DataLen) {
     if (MmioRead32(DWEMMC_RINTSTS) & (DWEMMC_INT_DRT | DWEMMC_INT_SBE | DWEMMC_INT_EBE | DWEMMC_INT_DCRC))  {
@@ -571,7 +571,7 @@ MshcReadBlockData (
     if (!DataLen) {
       ret = (MmioRead32(DWEMMC_RINTSTS) & (DWEMMC_INT_DRT | DWEMMC_INT_SBE | DWEMMC_INT_EBE | DWEMMC_INT_DCRC))? 
         EFI_DEVICE_ERROR : EFI_SUCCESS;
-      DEBUG((DW_DBG, "%a(): DataLen end :%d\n", __func__, ret));
+      //DEBUG((DW_DBG, "%a(): DataLen end :%d\n", __func__, ret));
       break;
     }
 
