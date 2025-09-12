@@ -22,7 +22,6 @@
   Fadt.aslc
   Gtdt.aslc
   Madt.aslc
-  Spcr.aslc
 
 [Packages]
   ArmPlatformPkg/ArmPlatformPkg.dec
@@ -34,7 +33,7 @@
 
 [FixedPcd]
   gArmTokenSpaceGuid.PcdGicDistributorBase
-  gArmTokenSpaceGuid.PcdGicRedistributorsBase
+  gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase
 
   gArmTokenSpaceGuid.PcdArmArchTimerSecIntrNum
   gArmTokenSpaceGuid.PcdArmArchTimerIntrNum

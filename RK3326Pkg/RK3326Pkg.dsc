@@ -128,6 +128,7 @@
   #
   gArmTokenSpaceGuid.PcdGicDistributorBase|0xff131000
   gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase|0xff132000
+  gArmTokenSpaceGuid.PcdGicRedistributorsBase|0xff132000
 
   gArmTokenSpaceGuid.PcdArmArchTimerSecIntrNum|29  # Secure physical
   gArmTokenSpaceGuid.PcdArmArchTimerIntrNum|30     # Non-secure physical

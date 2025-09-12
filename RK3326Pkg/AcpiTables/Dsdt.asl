@@ -14,11 +14,8 @@ DefinitionBlock ("DsdtTable.aml", "DSDT",
   Scope (_SB) {
 
     include ("Cpu.asl")
-    // include ("Tsadc.asl")
-    include ("Uart.asl")
-    include ("Wdt.asl")
-    // include ("Usb2.asl")
-    include ("Mshc.asl")
+    include ("Gpio.asl")
+    include ("Sdhc.asl")
 
   } // Scope (_SB)
 }

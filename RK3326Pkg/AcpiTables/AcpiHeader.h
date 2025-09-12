@@ -15,6 +15,7 @@
 #define __ACPIHEADER_H__
 
 #include <IndustryStandard/Acpi.h>
+#include <Library/GpioLib.h>
 
 #define EFI_ACPI_OEM_ID                       {'R','K','C','P',' ',' '}
 #define EFI_ACPI_OEM_TABLE_ID                 SIGNATURE_64 ('R','K','3','3','2','6',' ',' ')
