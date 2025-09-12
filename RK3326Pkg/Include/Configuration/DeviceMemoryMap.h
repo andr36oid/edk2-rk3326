@@ -67,7 +67,7 @@ static ARM_MEMORY_REGION_DESCRIPTOR_EX gDeviceMemoryDescriptorEx[] = {
   {"UEFI FD",           0x02000000, 0x00200000, AddMem, SYS_MEM, SYS_MEM_CAP, BsCode, WRITE_BACK},
   {"DXE Heap",          0x02200000, 0x04000000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
   {"HLOS",              0x06200000, 0x37c00000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
-  {"Display Reserved",  0x3DE00000, 0x00800000, AddMem, MEM_RES, WRITE_THROUGH, MaxMem, WRITE_THROUGH},
+  {"Display Reserved",  0x3DE00000, 0x00800000, AddMem, MEM_RES, WRITE_THROUGH, Reserv, WRITE_THROUGH},
   {"HLOS",              0x3e600000, 0x01a00000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
 
 //--------------------- Register ---------------------

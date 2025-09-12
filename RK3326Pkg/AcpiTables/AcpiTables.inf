@@ -18,11 +18,9 @@
 
 [Sources]
   Dsdt.asl
-  Dbg2.aslc
   Fadt.aslc
   Gtdt.aslc
   Madt.aslc
-  Spcr.aslc
 
 [Packages]
   ArmPlatformPkg/ArmPlatformPkg.dec
