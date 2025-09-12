@@ -2,46 +2,38 @@
 #
 #  ACPI table data and ASL sources required to boot the platform.
 #
-#  Copyright (c) 2014-2017, ARM Ltd. All rights reserved.
+#  Copyright (c) 2025, Efim Gîrjeu <efimgirjeu@gmail.com>
+#  Copyright (c) 2020, Linaro Ltd. All rights reserved.
 #
-#  This program and the accompanying materials
-#  are licensed and made available under the terms and conditions of the BSD License
-#  which accompanies this distribution.  The full text of the license may be found at
-#  http://opensource.org/licenses/bsd-license.php
-#
-#  THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
 #
 ##
 
 [Defines]
-  INF_VERSION                    = 0x00010005
-  BASE_NAME                      = RK3326PkgAcpiTables
-  FILE_GUID                      = 7E374E25-8E01-4FEE-87F2-390C23C606CD # Must be this
+  INF_VERSION                    = 0x0001001A
+  BASE_NAME                      = RK3326AcpiTables
+  FILE_GUID                      = 0FBE0D20-3528-4F07-838B-9A711C62654F
   MODULE_TYPE                    = USER_DEFINED
   VERSION_STRING                 = 1.0
 
 [Sources]
   Dsdt.asl
   Dbg2.aslc
-  #Spcr.aslc
   Fadt.aslc
   Gtdt.aslc
   Madt.aslc
-  #AcpiSsdtRootPci.asl          # Juno R1 specific
+  Spcr.aslc
 
 [Packages]
-  ArmPkg/ArmPkg.dec
   ArmPlatformPkg/ArmPlatformPkg.dec
+  ArmPkg/ArmPkg.dec
   EmbeddedPkg/EmbeddedPkg.dec
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
   RK3326Pkg/RK3326Pkg.dec
 
 [FixedPcd]
-  gArmPlatformTokenSpaceGuid.PcdCoreCount
   gArmTokenSpaceGuid.PcdGicDistributorBase
-  gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase
   gArmTokenSpaceGuid.PcdGicRedistributorsBase
 
   gArmTokenSpaceGuid.PcdArmArchTimerSecIntrNum
@@ -49,17 +41,11 @@
   gArmTokenSpaceGuid.PcdArmArchTimerHypIntrNum
   gArmTokenSpaceGuid.PcdArmArchTimerVirtIntrNum
 
-  gArmTokenSpaceGuid.PcdGenericWatchdogControlBase
-  gArmTokenSpaceGuid.PcdGenericWatchdogRefreshBase
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultCreatorId
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultCreatorRevision
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemId
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemTableId
+  gEfiMdeModulePkgTokenSpaceGuid.PcdAcpiDefaultOemRevision
 
-  #
-  # PL011 UART Settings for Serial Port Console Redirection
-  #
-  gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase
-  gEfiMdePkgTokenSpaceGuid.PcdUartDefaultBaudRate
-  gArmPlatformTokenSpaceGuid.PL011UartClkInHz
-  gArmPlatformTokenSpaceGuid.PL011UartInterrupt
-
-  gArmPlatformTokenSpaceGuid.PcdSerialDbgRegisterBase
-
-  gArmPlatformTokenSpaceGuid.PcdWatchdogCount
+[BuildOptions]
+  GCC:*_*_*_ASL_FLAGS       = -vw3133 -vw3150
