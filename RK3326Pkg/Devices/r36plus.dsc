@@ -14,7 +14,7 @@
 [PcdsFixedAtBuild.common]
   # System Memory (1.5GB)
   gArmTokenSpaceGuid.PcdSystemMemoryBase|0x00000000
-  gArmTokenSpaceGuid.PcdSystemMemorySize|0x3de00000
+  gArmTokenSpaceGuid.PcdSystemMemorySize|0x40000000
   # Framebuffer (720x1280)
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferAddress|0x3de00000
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferWidth|720
@@ -22,6 +22,13 @@
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleWidth|720
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferVisibleHeight|720
   gRK3326PkgTokenSpaceGuid.PcdMipiFrameBufferPixelBpp|32
+
+  gRK3326PkgTokenSpaceGuid.PcdPlatformName|"GameConsole R36Plus"
+  gRK3326PkgTokenSpaceGuid.PcdCpuName|"Rockchip RK3326 (Cortex-A35)"
+  gRK3326PkgTokenSpaceGuid.PcdPlatformVendorName|"Rockchip"
+  gRK3326PkgTokenSpaceGuid.PcdFamilyName|"GameConsole"
+  gRK3326PkgTokenSpaceGuid.PcdProductUrl|"https://handhelds.wiki/R36Plus"
+  gRK3326PkgTokenSpaceGuid.PcdMemoryVendorName|"SKHynix"
 
   [PcdsDynamicDefault.common]
   gEfiMdeModulePkgTokenSpaceGuid.PcdVideoHorizontalResolution|720 # /8 = column

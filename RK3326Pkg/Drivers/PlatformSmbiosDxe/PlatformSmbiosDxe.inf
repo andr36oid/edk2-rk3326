@@ -1,22 +1,22 @@
+
 #/** @file
 #
+#  SMBIOS Table for Quartz64 platforms
+#
+#  Copyright (c) 2021 Jared McNeill <jmcneill@invisible.ca>
+#  Copyright (c) 2017-2021 Andrei Warkentin <andrey.warkentin@gmail.com>
+#  Copyright (c) Microsoft Corporation. All rights reserved.
 #  Copyright (c) 2013 Linaro.org
-#  Copyright (c) 2018 Microsoft Corporation. All rights reserved.
+#  Copyright (c) 2020, ARM Limited. All rights reserved.
 #
-#  This program and the accompanying materials
-#  are licensed and made available under the terms and conditions of the BSD License
-#  which accompanies this distribution.  The full text of the license may be found at
-#  http://opensource.org/licenses/bsd-license.php
-#
-#  THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
 #
 #**/
 
 [Defines]
   INF_VERSION                    = 0x0001001A
   BASE_NAME                      = PlatformSmbiosDxe
-  FILE_GUID                      = 3847D23F-1D95-4772-B60C-4BBFBC4D532F
+  FILE_GUID                      = 196E5BEB-983E-4B58-8292-BC310F6962DF
   MODULE_TYPE                    = DXE_DRIVER
   VERSION_STRING                 = 1.0
   ENTRY_POINT                    = PlatformSmbiosDriverEntryPoint
@@ -25,36 +25,43 @@
   PlatformSmbiosDxe.c
 
 [Packages]
-  ArmPkg/ArmPkg.dec
-  ArmPlatformPkg/ArmPlatformPkg.dec
-  MdeModulePkg/MdeModulePkg.dec
   MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ArmPlatformPkg/ArmPlatformPkg.dec
+  ArmPkg/ArmPkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
   RK3326Pkg/RK3326Pkg.dec
 
 [LibraryClasses]
   ArmLib
-  BaseLib
-  BaseMemoryLib
-  DebugLib
-  IoLib
-  MemoryAllocationLib
-  PrintLib
   UefiBootServicesTableLib
-  UefiDriverEntryPoint
+  MemoryAllocationLib
+  BaseMemoryLib
+  BaseLib
   UefiLib
+  UefiDriverEntryPoint
+  DebugLib
+  PrintLib
+  TimeBaseLib
 
 [Protocols]
-  gEfiSmbiosProtocolGuid                        # PROTOCOL SOMETIMES_CONSUMED
+  gEfiSmbiosProtocolGuid           # PROTOCOL SOMETIMES_CONSUMED
 
 [Guids]
 
-[FixedPcd]
-  gArmPlatformTokenSpaceGuid.PcdCoreCount
-  gArmTokenSpaceGuid.PcdFdSize
-  gArmTokenSpaceGuid.PcdSystemMemorySize
-  gArmTokenSpaceGuid.PcdSystemMemoryBase
-  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareRevision
-  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVendor
-
 [Depex]
   gEfiSmbiosProtocolGuid
+
+[Pcd]
+  gArmTokenSpaceGuid.PcdFdBaseAddress
+  gArmTokenSpaceGuid.PcdFdSize
+  gArmTokenSpaceGuid.PcdSystemMemoryBase
+  gArmTokenSpaceGuid.PcdSystemMemorySize
+  gRK3326PkgTokenSpaceGuid.PcdPlatformName
+  gRK3326PkgTokenSpaceGuid.PcdCpuName
+  gRK3326PkgTokenSpaceGuid.PcdPlatformVendorName
+  gRK3326PkgTokenSpaceGuid.PcdProductUrl
+  gRK3326PkgTokenSpaceGuid.PcdFamilyName
+  gRK3326PkgTokenSpaceGuid.PcdMemoryVendorName
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVendor
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString

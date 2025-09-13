@@ -57,5 +57,13 @@
   gRK3326PkgTokenSpaceGuid.PcdMshcDxePwrEnUsed|FALSE|BOOLEAN|0x00000013
   gRK3326PkgTokenSpaceGuid.PcdMshcDxePwrEnInverted|FALSE|BOOLEAN|0x00000014
 
+  gRK3326PkgTokenSpaceGuid.PcdPlatformName|"Unknown"|VOID*|0x00000110
+  gRK3326PkgTokenSpaceGuid.PcdCpuName|"Unknown"|VOID*|0x00000111
+  gRK3326PkgTokenSpaceGuid.PcdPlatformVendorName|"Unknown"|VOID*|0x00000112
+  gRK3326PkgTokenSpaceGuid.PcdProductUrl|"Unknown"|VOID*|0x00000113
+  gRK3326PkgTokenSpaceGuid.PcdMemoryVendorName|"Unknown"|VOID*|0x00000114
+  gRK3326PkgTokenSpaceGuid.PcdFamilyName|"Unknown"|VOID*|0x00000115
+
+  
 [PcdsFixedAtBuild, PcdsPatchableInModule, PcdsDynamic, PcdsDynamicEx]
   gRK3326PkgTokenSpaceGuid.PcdSystemTableMode|0|UINT32|0x00004001
