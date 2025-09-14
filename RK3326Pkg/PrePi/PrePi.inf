@@ -41,6 +41,7 @@
   DebugLib
   DebugAgentLib
   ArmLib
+  ArmPlatformLib
   IoLib
   TimerLib
   SerialPortLib

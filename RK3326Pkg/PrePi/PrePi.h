@@ -21,6 +21,10 @@
 #include <Library/SerialPortLib.h>
 #include <Library/ArmPlatformLib.h>
 
+#include <Ppi/ArmMpCoreInfo.h>
+#include <Ppi/GuidedSectionExtraction.h>
+#include <Ppi/SecPerformance.h>
+
 extern UINT64  mSystemMemoryEnd;
 
 EFI_STATUS
