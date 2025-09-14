@@ -55,22 +55,48 @@ typedef struct {
 #define UNCACHED_UNBUFFERED_XN ARM_MEMORY_REGION_ATTRIBUTE_UNCACHED_UNBUFFERED
 
 static ARM_MEMORY_REGION_DESCRIPTOR_EX gDeviceMemoryDescriptorEx[] = {
-/*                                                    EFI_RESOURCE_ EFI_RESOURCE_ATTRIBUTE_ EFI_MEMORY_TYPE ARM_REGION_ATTRIBUTE_
+  /*                                                    EFI_RESOURCE_ EFI_RESOURCE_ATTRIBUTE_ EFI_MEMORY_TYPE ARM_REGION_ATTRIBUTE_
      MemLabel(32 Char.),  MemBase,    MemSize, BuildHob, ResourceType, ResourceAttribute, MemoryType, CacheAttributes
-*/
+  */
+ 
+ 
+ //--------------------- DDR --------------------- */
+ 
+  {"TF-A",              0x00000000, 0x00010000, AddMem, SYS_MEM, SYS_MEM_CAP,  Reserv,  DEVICE},
+  {"HLOS",              0x00010000, 0x01FF0000, AddMem, SYS_MEM, SYS_MEM_CAP,   Conv,   WRITE_BACK},
+  {"UEFI FD",           0x02000000, 0x00200000, AddMem, SYS_MEM, SYS_MEM_CAP,   BsCode, WRITE_BACK},
+  {"HLOS",              0x02200000, 0x06200000, AddMem, SYS_MEM, SYS_MEM_CAP,   Conv,   WRITE_BACK},
+  {"TRUST",             0x08400000, 0x00400000, AddMem, SYS_MEM, SYS_MEM_CAP,  Reserv,  DEVICE},
+  {"HLOS",              0x08800000, 0x35600000, AddMem, SYS_MEM, SYS_MEM_CAP,   Conv,   WRITE_BACK},
+  {"Display Reserved",  0x3DE00000, 0x00800000, AddMem, MEM_RES, WRITE_THROUGH, MaxMem, WRITE_THROUGH},
+  {"HLOS",              0x3E600000, 0x01A00000, AddMem, SYS_MEM, SYS_MEM_CAP,   Conv,   WRITE_BACK},
 
 //--------------------- Register ---------------------
-  {"Periphs",           0xF0000000, 0x15000000,  AddMem, MEM_RES, UNCACHEABLE,  RtCode,   DEVICE},
+  {"PMU",              0xFF000000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"PMU-GRF",          0xFF010000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"GPIO0",            0xFF040000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"GICD",             0xFF131000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"GICC",             0xFF132000, 0x02000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"GICH",             0xFF134000, 0x02000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"GICV",             0xFF136000, 0x02000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"GRF",              0xFF140000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"UART2",            0xFF160000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"Watchdog",         0xFF1E0000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"RKTIMER",          0xFF210000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"GPIO1",            0xFF250000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"GPIO2",            0xFF260000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"GPIO3",            0xFF270000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"TSADC",            0xFF280000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"SARADC",           0xFF288000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"OTP",              0xFF290000, 0x04000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"CRU",              0xFF2B0000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"PMUCRU",           0xFF2BC000, 0x01000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"USB2PHY_GRF",      0xFF2C0000, 0x10000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"USB20_OTG",        0xFF300000, 0x40000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"SDMMC",            0xFF370000, 0x04000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
+  {"SDIO",             0xFF380000, 0x04000,  AddDev, MMAP_IO, UNCACHEABLE,  MmIO,   DEVICE},
 
-//--------------------- DDR --------------------- */
-
-    {"LAST LOG",          0x00000000, 0x001f0000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK_XN},
-    {"UEFI FD",           0x02000000, 0x00200000, AddMem, SYS_MEM, SYS_MEM_CAP, BsCode, WRITE_BACK},
-    {"HLOS",              0x02200000, 0x3bc00000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
-    {"Display Reserved",  0x3de00000, 0x00a00000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH_XN},
-    {"HLOS",              0x3E800000, 0x01800000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
-
-    /* Terminator for MMU */
-    { "Terminator", 0, 0, 0, 0, 0, 0, 0}};
+  /* Terminator for MMU */
+  { "Terminator", 0, 0, 0, 0, 0, 0, 0}};
 
 #endif
