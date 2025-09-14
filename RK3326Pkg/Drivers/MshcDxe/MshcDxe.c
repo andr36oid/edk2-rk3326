@@ -116,14 +116,15 @@ MshcBuildDevicePath (
   IN EFI_DEVICE_PATH_PROTOCOL   **DevicePath
   )
 {
-  MEMMAP_DEVICE_PATH *MemMap;
+  EFI_DEVICE_PATH_PROTOCOL *NewDevicePathNode;
+  EFI_GUID DevicePathGuid = EFI_CALLER_ID_GUID;
 
-  MemMap = (MEMMAP_DEVICE_PATH*) CreateDeviceNode (HARDWARE_DEVICE_PATH, HW_MEMMAP_DP, sizeof (MEMMAP_DEVICE_PATH));
-  MemMap->MemoryType = EfiMemoryMappedIO;
-  MemMap->StartingAddress = PcdGet32 (PcdMshcDxeBaseAddress);
-  MemMap->EndingAddress = MemMap->StartingAddress + 0x1000 - 1;
+  DEBUG ((DEBUG_VERBOSE, "MshcDxe: MMCBuildDevicePath()\n"));
 
-  *DevicePath = (EFI_DEVICE_PATH_PROTOCOL*) MemMap;
+  NewDevicePathNode = CreateDeviceNode (HARDWARE_DEVICE_PATH, HW_VENDOR_DP, sizeof (VENDOR_DEVICE_PATH));
+  CopyGuid (&((VENDOR_DEVICE_PATH*) NewDevicePathNode)->Guid, &DevicePathGuid);
+  *DevicePath = NewDevicePathNode;
+
   return EFI_SUCCESS;
 }
 
