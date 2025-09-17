@@ -54,7 +54,6 @@
   DxeServicesLib|MdePkg/Library/DxeServicesLib/DxeServicesLib.inf
   BootLogoLib|MdeModulePkg/Library/BootLogoLib/BootLogoLib.inf
 
-  # SerialPortLib|RK3326Pkg/Library/InMemorySerialPortLib/InMemorySerialPortLib.inf
   RealTimeClockLib|EmbeddedPkg/Library/VirtualRealTimeClockLib/VirtualRealTimeClockLib.inf
   TimeBaseLib|EmbeddedPkg/Library/TimeBaseLib/TimeBaseLib.inf
 
@@ -80,7 +79,11 @@
 !if $(USE_SCREEN_FOR_SERIAL_OUTPUT) == 1
   SerialPortLib|RK3326Pkg/Library/FrameBufferSerialPortLib/FrameBufferSerialPortLib.inf
 !else
-  SerialPortLib|MdePkg/Library/BaseSerialPortLibNull/BaseSerialPortLibNull.inf
+  PciLib|MdePkg/Library/BasePciLibPciExpress/BasePciLibPciExpress.inf
+  PciExpressLib|MdePkg/Library/BasePciExpressLib/BasePciExpressLib.inf
+  SerialPortLib|MdeModulePkg/Library/BaseSerialPortLib16550/BaseSerialPortLib16550.inf
+  PlatformHookLib|MdeModulePkg/Library/BasePlatformHookLibNull/BasePlatformHookLibNull.inf
+
 !endif
 
   PlatformBootManagerLib|RK3326Pkg/Library/PlatformBootManagerLib/PlatformBootManagerLib.inf
