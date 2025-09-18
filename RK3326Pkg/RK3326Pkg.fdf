@@ -145,11 +145,15 @@ READ_LOCK_STATUS   = TRUE
   INF RK3326Pkg/Drivers/KeypadDxe/KeypadDxe.inf
 
   #
-  # SD
+  # SD/eMMC upper layer drivers
   #
-  INF EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf
-  INF RK3326Pkg/Drivers/MshcDxe/MshcDxe.inf
-
+  INF MdeModulePkg/Bus/Sd/SdDxe/SdDxe.inf
+  INF MdeModulePkg/Bus/Sd/EmmcDxe/EmmcDxe.inf
+  #
+  # SD Support
+  #
+  INF RK3326Pkg/Drivers/DesignWare/DwMmcHcDxe/DwMmcHcDxe.inf
+  INF RK3326Pkg/Drivers/DesignWare/RkSdmmcDxe/RkSdmmcDxe.inf
 
   #
   # USB Host Support

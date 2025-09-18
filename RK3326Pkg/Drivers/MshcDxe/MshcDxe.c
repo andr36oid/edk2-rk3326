@@ -57,6 +57,7 @@ typedef struct {
 } DWEMMC_IDMAC_DESCRIPTOR;
 
 EFI_MMC_HOST_PROTOCOL     *gpMmcHost;
+DWEMMC_IDMAC_DESCRIPTOR   *gpIdmacDesc;
 EFI_GUID mMshcDevicePathGuid = EFI_CALLER_ID_GUID;
 STATIC UINT32 mMshcCommand;
 STATIC UINT32 mMshcArgument;
@@ -317,7 +318,7 @@ SendCommand (
             DWEMMC_INT_RCRC | DWEMMC_INT_RE;
   ErrMask |= DWEMMC_INT_DCRC | DWEMMC_INT_DRT | DWEMMC_INT_SBE;
   do {
-    MicroSecondDelay(1);
+    MicroSecondDelay(500);
     Data = MmioRead32 (DWEMMC_RINTSTS);
 
     if (Status == EFI_SUCCESS && (Data & ErrMask) != 0) {
@@ -504,6 +505,63 @@ MshcAdjustFifoThreshold (
 }
 
 EFI_STATUS
+PrepareDmaData (
+  IN DWEMMC_IDMAC_DESCRIPTOR*    IdmacDesc,
+  IN UINTN                      Length,
+  IN UINT32*                    Buffer
+  )
+{
+  UINTN  Cnt, Blks, Idx, LastIdx;
+
+  Cnt = (Length + DWEMMC_DMA_BUF_SIZE - 1) / DWEMMC_DMA_BUF_SIZE;
+  Blks = (Length + DWEMMC_BLOCK_SIZE - 1) / DWEMMC_BLOCK_SIZE;
+  Length = DWEMMC_BLOCK_SIZE * Blks;
+
+  for (Idx = 0; Idx < Cnt; Idx++) {
+    (IdmacDesc + Idx)->Des0 = DWEMMC_IDMAC_DES0_OWN | DWEMMC_IDMAC_DES0_CH |
+                              DWEMMC_IDMAC_DES0_DIC;
+    (IdmacDesc + Idx)->Des1 = DWEMMC_IDMAC_DES1_BS1(DWEMMC_DMA_BUF_SIZE);
+    /* Buffer Address */
+    (IdmacDesc + Idx)->Des2 = (UINT32)((UINTN)Buffer + DWEMMC_DMA_BUF_SIZE * Idx);
+    /* Next Descriptor Address */
+    (IdmacDesc + Idx)->Des3 = (UINT32)((UINTN)IdmacDesc +
+                                       (sizeof(DWEMMC_IDMAC_DESCRIPTOR) * (Idx + 1)));
+  }
+  /* First Descriptor */
+  IdmacDesc->Des0 |= DWEMMC_IDMAC_DES0_FS;
+  /* Last Descriptor */
+  LastIdx = Cnt - 1;
+  (IdmacDesc + LastIdx)->Des0 |= DWEMMC_IDMAC_DES0_LD;
+  (IdmacDesc + LastIdx)->Des0 &= ~(DWEMMC_IDMAC_DES0_DIC | DWEMMC_IDMAC_DES0_CH);
+  (IdmacDesc + LastIdx)->Des1 = DWEMMC_IDMAC_DES1_BS1(Length -
+                                                      (LastIdx * DWEMMC_DMA_BUF_SIZE));
+  /* Set the Next field of Last Descriptor */
+  (IdmacDesc + LastIdx)->Des3 = 0;
+  MmioWrite32 (DWEMMC_DBADDR, (UINT32)((UINTN)IdmacDesc));
+
+  return EFI_SUCCESS;
+}
+
+VOID
+StartDma (
+  UINTN    Length
+  )
+{
+  UINT32 Data;
+
+  Data = MmioRead32 (DWEMMC_CTRL);
+  Data |= DWEMMC_CTRL_INT_EN | DWEMMC_CTRL_DMA_EN | DWEMMC_CTRL_IDMAC_EN;
+  MmioWrite32 (DWEMMC_CTRL, Data);
+  Data = MmioRead32 (DWEMMC_BMOD);
+  Data |= DWEMMC_IDMAC_ENABLE | DWEMMC_IDMAC_FB;
+  MmioWrite32 (DWEMMC_BMOD, Data);
+
+  MmioWrite32 (DWEMMC_BLKSIZ, DWEMMC_BLOCK_SIZE);
+  MmioWrite32 (DWEMMC_BYTCNT, Length);
+}
+
+
+EFI_STATUS
 MshcReadBlockData (
   IN EFI_MMC_HOST_PROTOCOL     *This,
   IN EFI_LBA                    Lba,
@@ -511,90 +569,36 @@ MshcReadBlockData (
   IN UINT32*                   Buffer
   )
 {
-  EFI_STATUS	Status;
-  UINT32		DataLen = Length>>2; //byte to word
-  EFI_STATUS	ret = EFI_SUCCESS;
-  UINT32		Data;
-  UINT32		TimeOut = 0;
-  UINT32		value = 0;
+  EFI_STATUS  Status;
+  UINT32      DescPages, CountPerPage, Count;
+  EFI_TPL     Tpl;
 
-  DEBUG ((DW_DBG, "%a():\n", __func__));
+  Tpl = gBS->RaiseTPL (TPL_NOTIFY);
 
-  ASSERT ((mMshcCommand & BIT_CMD_WRITE) == BIT_CMD_READ);
+  CountPerPage = EFI_PAGE_SIZE / 16;
+  Count = (Length + DWEMMC_DMA_BUF_SIZE - 1) / DWEMMC_DMA_BUF_SIZE;
+  DescPages = (Count + CountPerPage - 1) / CountPerPage;
 
-  if (mMshcCommand & BIT_CMD_WAIT_PRVDATA_COMPLETE) {
-    do {
-      Data = MmioRead32 (DWEMMC_STATUS);
-    } while (Data & DWEMMC_STS_DATA_BUSY);
+  InvalidateDataCacheRange (Buffer, Length);
+
+  Status = PrepareDmaData (gpIdmacDesc, Length, Buffer);
+  if (EFI_ERROR (Status)) {
+    goto out;
   }
 
-  if ((mMshcCommand & BIT_CMD_STOP_ABORT_CMD) || (mMshcCommand & BIT_CMD_DATA_EXPECTED)) {
-    if (!(MmioRead32 (DWEMMC_STATUS) & FIFO_EMPTY)) {
-      Data = MmioRead32 (DWEMMC_CTRL);
-      Data |= FIFO_RESET;
-      MmioWrite32 (DWEMMC_CTRL, Data);
-
-      TimeOut = 100000;
-      while (((value = MmioRead32 (DWEMMC_CTRL)) & (FIFO_RESET)) && (TimeOut > 0)) {
-        TimeOut--;
-      }
-      if (TimeOut == 0) {
-        DEBUG ((DEBUG_ERROR, "%a():  CMD=%d SDC_SDC_ERROR\n", __func__, mMshcCommand&0x3f));
-        return EFI_DEVICE_ERROR;
-      }
-    }
-  }
-
-  MmioWrite32 (DWEMMC_BLKSIZ, Length < 512 ? Length : 512);
-  MmioWrite32 (DWEMMC_BYTCNT, Length);
+  WriteBackDataCacheRange (gpIdmacDesc, DescPages * EFI_PAGE_SIZE);
+  StartDma (Length);
 
   Status = SendCommand (mMshcCommand, mMshcArgument);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Failed to read data, mMshcCommand:%x, mMshcArgument:%x, Status:%r\n", mMshcCommand, mMshcArgument, Status));
-    return EFI_DEVICE_ERROR;
+    goto out;
   }
-
-  DEBUG((DW_DBG, "Sdmmc::SdmmcReadBlockData  DataLen=%d\n", DataLen));
-  TimeOut = 1000000;
-  while (DataLen) {
-    if (MmioRead32(DWEMMC_RINTSTS) & (DWEMMC_INT_DRT | DWEMMC_INT_SBE | DWEMMC_INT_EBE | DWEMMC_INT_DCRC))  {
-      DEBUG ((DEBUG_ERROR, "%a(): EFI_DEVICE_ERROR DWEMMC_RINTSTS=0x%x DataLen=%d\n",
-        __func__, MmioRead32(DWEMMC_RINTSTS), DataLen));
-      return EFI_DEVICE_ERROR;
-    }
-
-    while((!(MmioRead32(DWEMMC_STATUS) & FIFO_EMPTY)) && DataLen) {
-      *Buffer++ = MmioRead32(DWEMMC_DATA);
-      DataLen--;
-      TimeOut = 1000000;
-    }
-
-    if (!DataLen) {
-      ret = (MmioRead32(DWEMMC_RINTSTS) & (DWEMMC_INT_DRT | DWEMMC_INT_SBE | DWEMMC_INT_EBE | DWEMMC_INT_DCRC))? 
-        EFI_DEVICE_ERROR : EFI_SUCCESS;
-      DEBUG((DW_DBG, "%a(): DataLen end :%d\n", __func__, ret));
-      break;
-    }
-
-    NanoSecondDelay(1);
-    TimeOut--;
-    if (TimeOut == 0) {
-      ret = EFI_DEVICE_ERROR;
-      DEBUG ((DEBUG_ERROR, "%a(): TimeOut! DataLen=%d\n", __func__, DataLen));
-      break;
-    }
-  }
-
-  return ret;
+out:
+  // Restore Tpl
+  gBS->RestoreTPL (Tpl);
+  return Status;
 }
-
-#define MMC_GET_FCNT(x)		        (((x)>>17) & 0x1FF)
-#define INTMSK_HTO      (0x1<<10)
-
-/* Common flag combinations */
-#define MMC_DATA_ERROR_FLAGS (DWEMMC_INT_DRT | DWEMMC_INT_DCRC | DWEMMC_INT_FRUN | \
-	DWEMMC_INT_HLE | INTMSK_HTO | DWEMMC_INT_SBE  | \
-	DWEMMC_INT_EBE)
 
 EFI_STATUS
 MshcWriteBlockData (
@@ -604,83 +608,35 @@ MshcWriteBlockData (
   IN UINT32*                    Buffer
   )
 {
-  UINT32 *DataBuffer = Buffer;
-  UINTN Count=0;
-  UINTN Size32 = Length / 4;
-  UINT32 Mask;
-  EFI_STATUS	Status;
-  UINT32		Data;
-  UINT32		TimeOut = 0;
-  UINT32		value = 0;
+  EFI_STATUS  Status;
+  UINT32      DescPages, CountPerPage, Count;
+  EFI_TPL     Tpl;
 
-  DEBUG ((DW_DBG, "%a():\n", __func__));
+  Tpl = gBS->RaiseTPL (TPL_NOTIFY);
 
-  ASSERT ((mMshcCommand & BIT_CMD_WRITE) == BIT_CMD_WRITE);
+  CountPerPage = EFI_PAGE_SIZE / 16;
+  Count = (Length + DWEMMC_DMA_BUF_SIZE - 1) / DWEMMC_DMA_BUF_SIZE;
+  DescPages = (Count + CountPerPage - 1) / CountPerPage;
 
-  if (mMshcCommand & BIT_CMD_WAIT_PRVDATA_COMPLETE) {
-    TimeOut = 100000;
-    do {
-      Data = MmioRead32 (DWEMMC_STATUS);
-      TimeOut--;
-    } while ((Data & DWEMMC_STS_DATA_BUSY) && (TimeOut > 0));
+  WriteBackDataCacheRange (Buffer, Length);
 
-    if (TimeOut == 0) {
-        DEBUG ((DEBUG_ERROR, "%a():  CMD=%d Timeout waiting for DWEMMC_STATUS DWEMMC_STS_DATA_BUSY\n", __func__, mMshcCommand&0x3f));
-        return EFI_DEVICE_ERROR;
-    }
+  Status = PrepareDmaData (gpIdmacDesc, Length, Buffer);
+  if (EFI_ERROR (Status)) {
+    goto out;
   }
 
-  if (!(((mMshcCommand&0x3f) == 6) || ((mMshcCommand&0x3f) == 51))) {
-    if ((mMshcCommand & BIT_CMD_STOP_ABORT_CMD) || (mMshcCommand & BIT_CMD_DATA_EXPECTED)) {
-      if (!(MmioRead32 (DWEMMC_STATUS) & FIFO_EMPTY)) {
-        Data = MmioRead32 (DWEMMC_CTRL);
-        Data |= FIFO_RESET;
-        MmioWrite32 (DWEMMC_CTRL, Data);
-
-        TimeOut = 100000;
-        while (((value = MmioRead32 (DWEMMC_CTRL)) & (FIFO_RESET)) && (TimeOut > 0)) {
-          TimeOut--;
-        }
-        if (TimeOut == 0) {
-          DEBUG ((DEBUG_ERROR, "%a():  CMD=%d SDC_SDC_ERROR\n", __func__, mMshcCommand&0x3f));
-          return EFI_DEVICE_ERROR;
-        }
-      }
-    }
-  }
-
-  MmioWrite32 (DWEMMC_BLKSIZ, 512);
-  MmioWrite32 (DWEMMC_BYTCNT, Length);
+  WriteBackDataCacheRange (gpIdmacDesc, DescPages * EFI_PAGE_SIZE);
+  StartDma (Length);
 
   Status = SendCommand (mMshcCommand, mMshcArgument);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "Failed to write data, mMshcCommand:%x, mMshcArgument:%x, Status:%r\n", mMshcCommand, mMshcArgument, Status));
-    return EFI_DEVICE_ERROR;
+    goto out;
   }
-
-  for (Count = 0; Count < Size32; Count++) {
-    TimeOut = 100000;
-    while((MMC_GET_FCNT(MmioRead32(DWEMMC_STATUS)) >32) && (TimeOut > 0))
-    {
-      MicroSecondDelay(1);
-      TimeOut--;
-    }
-    if (TimeOut == 0) {
-      DEBUG ((DEBUG_ERROR, "%a():  CMD=%d DWEMMC_STATUS timeout\n", __func__, mMshcCommand&0x3f));
-      return EFI_DEVICE_ERROR;
-    }
-    MmioWrite32(DWEMMC_DATA, *DataBuffer++);
-  }
-
-  do {
-    Mask = MmioRead32(DWEMMC_RINTSTS);
-    if (Mask & (MMC_DATA_ERROR_FLAGS)) {
-      DEBUG((DEBUG_ERROR, "SdmmcWriteData error, RINTSTS = 0x%08x\n", Mask));
-      return EFI_DEVICE_ERROR;
-    }	
-  } while (!(Mask & DWEMMC_INT_DTO));
-
-  return EFI_SUCCESS;
+out:
+  // Restore Tpl
+  gBS->RestoreTPL (Tpl);
+  return Status;
 }
 
 EFI_STATUS
@@ -772,26 +728,14 @@ MshcDxeInitialize (
   CruAssertSoftReset (13, 4);
   MicroSecondDelay (5);
   CruDeassertSoftReset (13, 4);
-
+  gpIdmacDesc = (DWEMMC_IDMAC_DESCRIPTOR *)AllocatePages (DWEMMC_MAX_DESC_PAGES);
+  if (gpIdmacDesc == NULL) {
+    return EFI_BUFFER_TOO_SMALL;
+  }
   DEBUG ((DEBUG_BLKIO, "MshcDxeInitialize()\n"));
 
   /* Configure pins */
   GpioSetIomuxConfig (mSdmmc0IomuxConfig, ARRAY_SIZE (mSdmmc0IomuxConfig));
-  if (PcdGetBool (PcdMshcDxePwrEnUsed)) {
-    if (!PcdGetBool (PcdMshcDxePwrEnInverted)) {
-      GpioSetIomuxConfig (mSdmmc0IomuxPwrEnDefaultConfig, ARRAY_SIZE (mSdmmc0IomuxPwrEnDefaultConfig));
-    } else {
-      /*
-      * This board has the PWREN signal from SDMMC0 inverted. Configure the
-      * pin as GPIO and drive it low since there is no way with the device tree
-      * bindings to tell the driver about this quirk.
-      */
-      DEBUG ((DEBUG_INFO, "MshcDxeInitialize(): Applying PWREN inverted workaround\n"));
-      GpioSetIomuxConfig (mSdmmc0IomuxPwrEnInvertedConfig, ARRAY_SIZE (mSdmmc0IomuxPwrEnInvertedConfig));
-      GpioPinSetDirection (0, GPIO_PIN_PA5, GPIO_PIN_OUTPUT);
-      GpioPinWrite (0, GPIO_PIN_PA5, FALSE);
-    }
-  }
 
   MshcAdjustFifoThreshold ();
 

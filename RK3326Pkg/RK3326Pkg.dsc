@@ -93,9 +93,15 @@
   # SoC/device specific Libraries
   GpioLib|RK3326Pkg/Library/GpioLib/GpioLib.inf
   CruLib|RK3326Pkg/Library/CruLib/CruLib.inf
-  
+
+  # RkSdmmcDxe dependencies
+  RkSdmmcPlatformLib|RK3326Pkg/Library/RkSdmmcPlatformLib/RkSdmmcPlatformLib.inf
+
   KeypadDeviceHelperLib|RK3326Pkg/Library/KeypadDeviceHelperLib/KeypadDeviceHelperLib.inf
   KeypadDeviceImplLib|RK3326Pkg/Library/KeypadDeviceImplLib/KeypadDeviceImplLib.inf
+
+  DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
+
 
 [LibraryClasses.common.SEC]
   PrePiLib|EmbeddedPkg/Library/PrePiLib/PrePiLib.inf
@@ -205,11 +211,17 @@
   RK3326Pkg/Drivers/GenericKeypadDeviceDxe/GenericKeypadDeviceDxe.inf
   RK3326Pkg/Drivers/KeypadDxe/KeypadDxe.inf
 
+
   #
-  # SD
+  # SD/eMMC upper layer drivers
   #
-  EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf
-  RK3326Pkg/Drivers/MshcDxe/MshcDxe.inf
+  MdeModulePkg/Bus/Sd/SdDxe/SdDxe.inf
+  MdeModulePkg/Bus/Sd/EmmcDxe/EmmcDxe.inf
+  #
+  # SD Support
+  #
+  RK3326Pkg/Drivers/DesignWare/DwMmcHcDxe/DwMmcHcDxe.inf
+  RK3326Pkg/Drivers/DesignWare/RkSdmmcDxe/RkSdmmcDxe.inf
 
   #
   # Virtual Keyboard

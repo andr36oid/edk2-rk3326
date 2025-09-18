@@ -195,7 +195,7 @@ EFI_STATUS KeypadDeviceImplGetKeys (KEYPAD_DEVICE_PROTOCOL *This, KEYPAD_RETURN_
     if(GpioPinRead(Context->GpioBank, Context->Gpio) == 1)
     {
       IsPressed = TRUE;
-      DEBUG((EFI_D_INFO | EFI_D_LOAD, "IsPressed= %d\n", IsPressed));
+      //DEBUG((EFI_D_INFO | EFI_D_LOAD, "IsPressed= %d\n", IsPressed));
     }
     //DEBUG((EFI_D_INFO | EFI_D_LOAD, "GpioBank:%u, Gpio:%u, GpioStatus:%u\n", Context->GpioBank, Context->Gpio, GpioStatus));
     //DEBUG((EFI_D_INFO | EFI_D_LOAD, "IsPressed is:%u\n", IsPressed));
