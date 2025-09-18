@@ -318,6 +318,19 @@
   gEmbeddedTokenSpaceGuid.PcdTimerPeriod|10000
   gEfiMdePkgTokenSpaceGuid.PcdUartDefaultReceiveFifoDepth|32
 
+  # UART2
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase|0xFF160000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSerialUseMmio|TRUE
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSerialUseHardwareFlowControl|FALSE
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSerialClockRate|24000000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterStride|4
+  gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterAccessWidth|32
+
+  # TODO: Use 1.5M baud
+  #gEfiMdePkgTokenSpaceGuid.PcdUartDefaultBaudRate|1500000
+  gEfiMdePkgTokenSpaceGuid.PcdUartDefaultBaudRate|115200
+  
+
 [PcdsDynamicHii.common.DEFAULT]
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut|L"Timeout"|gEfiGlobalVariableGuid|0x0|3 # Variable: L"Timeout"
 
