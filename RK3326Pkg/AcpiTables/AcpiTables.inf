@@ -1,65 +1,51 @@
-## @file
+#/** @file
 #
 #  ACPI table data and ASL sources required to boot the platform.
 #
-#  Copyright (c) 2014-2017, ARM Ltd. All rights reserved.
+#  Copyright (c) 2019-2021, ARM Limited. All rights reserved.
+#  Copyright (c) Microsoft Corporation. All rights reserved.
 #
-#  This program and the accompanying materials
-#  are licensed and made available under the terms and conditions of the BSD License
-#  which accompanies this distribution.  The full text of the license may be found at
-#  http://opensource.org/licenses/bsd-license.php
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
 #
-#  THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED.
-#
-##
+#**/
 
 [Defines]
-  INF_VERSION                    = 0x00010005
-  BASE_NAME                      = RK3326PkgAcpiTables
-  FILE_GUID                      = 7E374E25-8E01-4FEE-87F2-390C23C606CD # Must be this
+  INF_VERSION                    = 0x0001001A
+  BASE_NAME                      = AcpiTables
+  FILE_GUID                      = 7E374E25-8E01-4FEE-87F2-390C23C606CD
   MODULE_TYPE                    = USER_DEFINED
   VERSION_STRING                 = 1.0
+  RK_COMMON_ACPI_DIR             = Silicon/Rockchip/RK3588/AcpiTables
+
+#
+# The following information is for reference only and not required by the build tools.
+#
+#  VALID_ARCHITECTURES           = AARCH64
+#
 
 [Sources]
   Dsdt.asl
-  Dbg2.aslc
-  #Spcr.aslc
+  Madt.aslc
   Fadt.aslc
   Gtdt.aslc
-  Madt.aslc
-  #AcpiSsdtRootPci.asl          # Juno R1 specific
-
+  Spcr.aslc
+  Dbg2.aslc
+  
 [Packages]
   ArmPkg/ArmPkg.dec
   ArmPlatformPkg/ArmPlatformPkg.dec
   EmbeddedPkg/EmbeddedPkg.dec
-  MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  MdePkg/MdePkg.dec
   RK3326Pkg/RK3326Pkg.dec
 
 [FixedPcd]
   gArmPlatformTokenSpaceGuid.PcdCoreCount
-  gArmTokenSpaceGuid.PcdGicDistributorBase
-  gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase
-  gArmTokenSpaceGuid.PcdGicRedistributorsBase
-
-  gArmTokenSpaceGuid.PcdArmArchTimerSecIntrNum
   gArmTokenSpaceGuid.PcdArmArchTimerIntrNum
   gArmTokenSpaceGuid.PcdArmArchTimerHypIntrNum
+  gArmTokenSpaceGuid.PcdArmArchTimerSecIntrNum
   gArmTokenSpaceGuid.PcdArmArchTimerVirtIntrNum
-
-  gArmTokenSpaceGuid.PcdGenericWatchdogControlBase
-  gArmTokenSpaceGuid.PcdGenericWatchdogRefreshBase
-
-  #
-  # PL011 UART Settings for Serial Port Console Redirection
-  #
+  gArmTokenSpaceGuid.PcdGicInterruptInterfaceBase
+  gArmTokenSpaceGuid.PcdGicDistributorBase
+  gArmTokenSpaceGuid.PcdGicRedistributorsBase
   gEfiMdeModulePkgTokenSpaceGuid.PcdSerialRegisterBase
-  gEfiMdePkgTokenSpaceGuid.PcdUartDefaultBaudRate
-  gArmPlatformTokenSpaceGuid.PL011UartClkInHz
-  gArmPlatformTokenSpaceGuid.PL011UartInterrupt
-
-  gArmPlatformTokenSpaceGuid.PcdSerialDbgRegisterBase
-
-  gArmPlatformTokenSpaceGuid.PcdWatchdogCount

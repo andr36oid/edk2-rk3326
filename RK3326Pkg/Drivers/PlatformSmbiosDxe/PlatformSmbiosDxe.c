@@ -192,53 +192,9 @@ SMBIOS_TABLE_TYPE4 mProcessorInfoType4 = {
                                      // enumeration value from
                                      // PROCESSOR_FAMILY2_DATA.
     2,                               // ProcessorManufacture String;
-    {                                // ProcessorId;
-     {
-         // PROCESSOR_SIGNATURE
-         0, //  ProcessorSteppingId:4;
-         0, //  ProcessorModel:     4;
-         0, //  ProcessorFamily:    4;
-         0, //  ProcessorType:      2;
-         0, //  ProcessorReserved1: 2;
-         0, //  ProcessorXModel:    4;
-         0, //  ProcessorXFamily:   8;
-         0, //  ProcessorReserved2: 4;
-     },
-
-     {
-         // PROCESSOR_FEATURE_FLAGS
-         0, //  ProcessorFpu       :1;
-         0, //  ProcessorVme       :1;
-         0, //  ProcessorDe        :1;
-         0, //  ProcessorPse       :1;
-         0, //  ProcessorTsc       :1;
-         0, //  ProcessorMsr       :1;
-         0, //  ProcessorPae       :1;
-         0, //  ProcessorMce       :1;
-         0, //  ProcessorCx8       :1;
-         0, //  ProcessorApic      :1;
-         0, //  ProcessorReserved1 :1;
-         0, //  ProcessorSep       :1;
-         0, //  ProcessorMtrr      :1;
-         0, //  ProcessorPge       :1;
-         0, //  ProcessorMca       :1;
-         0, //  ProcessorCmov      :1;
-         0, //  ProcessorPat       :1;
-         0, //  ProcessorPse36     :1;
-         0, //  ProcessorPsn       :1;
-         0, //  ProcessorClfsh     :1;
-         0, //  ProcessorReserved2 :1;
-         0, //  ProcessorDs        :1;
-         0, //  ProcessorAcpi      :1;
-         0, //  ProcessorMmx       :1;
-         0, //  ProcessorFxsr      :1;
-         0, //  ProcessorSse       :1;
-         0, //  ProcessorSse2      :1;
-         0, //  ProcessorSs        :1;
-         0, //  ProcessorReserved3 :1;
-         0, //  ProcessorTm        :1;
-         0, //  ProcessorReserved4 :2;
-     }},
+  {                                // ProcessorId;
+    0x00, 0x00, 0x00, 0x00
+  },
     3, // ProcessorVersion String;
     {
         // Voltage;
@@ -280,8 +236,8 @@ SMBIOS_TABLE_TYPE7 mCacheInfoType7 = {
     {EFI_SMBIOS_TYPE_CACHE_INFORMATION, sizeof(SMBIOS_TABLE_TYPE7), 0},
     1,      // SocketDesignation String
     0x0180, // Cache Configuration
-    0x0020, // Maximum Size 32k
-    0x0020, // Install Size 32k
+    { 0x0020, 0}, // Maximum Size 32k
+    { 0x0020, 0}, // Install Size 32k
     {
         // Supported SRAM Type
         0, // Other             :1
