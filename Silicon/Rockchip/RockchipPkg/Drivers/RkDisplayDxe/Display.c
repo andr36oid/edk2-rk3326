@@ -7,6 +7,7 @@
   SPDX-License-Identifier: GPL-2.0+
 **/
 
+#include <Uefi.h>
 #include <Library/CruLib.h>
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>

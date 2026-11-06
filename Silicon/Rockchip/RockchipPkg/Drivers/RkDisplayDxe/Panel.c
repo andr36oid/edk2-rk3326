@@ -10,6 +10,7 @@
   SPDX-License-Identifier: GPL-2.0+
 **/
 
+#include <Uefi.h>
 #include <Library/DebugLib.h>
 #include <Library/GpioLib.h>
 #include <Library/RkPmicLib.h>

@@ -18,7 +18,7 @@
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
-#include <Uefi.h>
+#include <PiDxe.h>
 #include <Guid/RkPlatformInfoHob.h>
 #include <Protocol/RkScreenFdt.h>
 #include <Library/BaseLib.h>

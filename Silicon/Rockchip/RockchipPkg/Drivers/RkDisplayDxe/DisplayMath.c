@@ -7,8 +7,8 @@
   display_get_timing_from_dts, dw_mipi_dsi.c, inno_video_combo_phy.c,
   rockchip_vop.c, drm_mipi_dsi.c) and drivers/video/pwm_backlight.c,
   drivers/pwm/rk_pwm.c. The integer types follow U-Boot's where truncation
-  could change a result. HostTest/ checks every function here against the
-  U-Boot originals for each panel the andr36oid DTBs describe.
+  could change a result. Tests/host/display checks every function here
+  against the U-Boot originals for each panel the andr36oid DTBs describe.
 
   SPDX-License-Identifier: GPL-2.0+
 **/

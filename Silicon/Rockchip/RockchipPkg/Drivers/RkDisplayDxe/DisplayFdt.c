@@ -11,6 +11,7 @@
   SPDX-License-Identifier: GPL-2.0+
 **/
 
+#include <Uefi.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
@@ -645,8 +646,8 @@ RkPanelParse (
   Panel->Format    = GetU32Default (Fdt, Node, "dsi,format", RK_DSI_FMT_RGB888);
   Panel->ModeFlags = GetU32Default (Fdt, Node, "dsi,flags", DEFAULT_DSI_FLAGS);
   Panel->Channel   = GetU32Default (Fdt, Node, "reg", 0);
-  if ((Panel->Lanes < 1) || (Panel->Lanes > 4) || (Panel->Channel > 3)) {
-    DEBUG ((DEBUG_ERROR, "Display: %u lanes / channel %u not supported\n", Panel->Lanes, Panel->Channel));
+  if ((Panel->Lanes < 1) || (Panel->Lanes > 4) || (Panel->Channel > 3) || (Panel->Format > RK_DSI_FMT_RGB565)) {
+    DEBUG ((DEBUG_ERROR, "Display: %u lanes / channel %u / format %u not supported\n", Panel->Lanes, Panel->Channel, Panel->Format));
     return EFI_UNSUPPORTED;
   }
 
