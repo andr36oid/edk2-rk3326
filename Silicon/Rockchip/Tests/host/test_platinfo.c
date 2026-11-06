@@ -28,6 +28,7 @@
 // ---- register model ------------------------------------------------------------
 
 static UINT32       os_reg2, os_reg3;
+static UINT32       pmu_pwrdn_st, pmu_bus_idle_st;   // PMU_PWRDN_ST 0xFF000020, PMU_BUS_IDLE_ST 0xFF00006C
 static UB_VOP_REGS  vopb, vopl;
 
 static UINT32 *VopReg (UB_VOP_REGS *V, UINTN Off)
@@ -51,6 +52,8 @@ UINT32 EFIAPI MmioRead32 (UINTN a)
 
   if (a == 0xFF010208UL) return os_reg2;     // PMUGRF OS_REG2 (U-Boot get_ddr_os_reg: 0xff010208)
   if (a == 0xFF01020CUL) return os_reg3;
+  if (a == 0xFF000020UL) return pmu_pwrdn_st;
+  if (a == 0xFF00006CUL) return pmu_bus_idle_st;
   if ((a & ~0xFFFFUL) == 0xFF460000UL) R = VopReg (&vopb, a & 0xFFFF);
   if ((a & ~0xFFFFUL) == 0xFF470000UL) R = VopReg (&vopl, a & 0xFFFF);
   if (R == NULL) {
@@ -124,12 +127,7 @@ static void OneGeometry (UINT32 Type, struct ub_sdram_cap_info *Cap, BOOLEAN Leg
     // (SDRAM_MAX_SIZE 0xff000000). RAM must never reach 0xFF000000.
     n_cap++;
     CHECK ((Got == 0) || (Got <= UB_SDRAM_MAX_SIZE) || (Got == SIZE_4GB));
-    if ((Got > UB_SDRAM_MAX_SIZE) && (n_known_cap++ == 0)) {
-      KNOWN (Got <= UB_SDRAM_MAX_SIZE, "dram-4g",
-             "OS_REG2 0x%08x OS_REG3 0x%08x is %llu MB of RAM: RkGetDramSize says 0x%llx, U-Boot 0x%llx; "
-             "RAM would overlap the registers at 0xFF000000",
-             R2, R3, (unsigned long long)(Truth >> 20), (unsigned long long)Got, (unsigned long long)Ub);
-    }
+    CHECK ((Got == 0) || (Got <= UB_SDRAM_MAX_SIZE));
   }
 }
 
@@ -200,9 +198,7 @@ static void TestDramNamed (void)
   // Nothing recorded: the registers' reset value. A real record always
   // carries the channel-info bit (SYS_REG_ENC_CHINFO), so all zeros means
   // "missing", which the header says reads as 0.
-  KNOWN (Ours (0, 0) == 0, "dram-zero-record",
-         "OS_REG2/3 = 0 (no DDR record) reads as %llu MB instead of 0 (unknown)",
-         (unsigned long long)(Ours (0, 0) >> 20));
+  CHECK (Ours (0, 0) == 0);
   // All ones claims two channels, which the PX30 does not have; U-Boot
   // still decodes it, and so may the library, but never differently.
   CHECK ((Ours (0xFFFFFFFF, 0xFFFFFFFF) == 0) || (Ours (0xFFFFFFFF, 0xFFFFFFFF) == ub_rockchip_sdram_size (0xFFFFFFFF, 0xFFFFFFFF)));
@@ -391,6 +387,62 @@ static void ExpectLikeUboot (CONST char *What)
   ExpectTags (What, EFI_SUCCESS, U.BootDevType, U.BootDevNum, U.TeeBase, U.TeeSize);
 }
 
+// The pre-ATAGs block at DDR + 34 MB, filled the way BL32 fills it.
+static void SetTosParam (UINT64 Base, UINT32 Size, UINT32 Flags, BOOLEAN GoodSum)
+{
+  struct ub_tos_param_t  *P = (struct ub_tos_param_t *)(UINTN)UB_PARAM_OPTEE_INFO_OFFSET;
+
+  memset (P, 0, sizeof (*P));
+  P->version = 1;
+  memcpy (P->tee_mem.name, "op-tee", 6);
+  P->tee_mem.phy_addr = (int64_t)Base;
+  P->tee_mem.size     = Size;
+  P->tee_mem.flags    = Flags;
+  P->reserve[3]       = 0x0123456789ABCDEFLL;
+  P->checksum = ub_trust_checksum ((UINT8 *)P + 8, sizeof (*P) - 8) ^ (GoodSum ? 0 : 1);
+}
+
+static void ExpectBoth (CONST char *What, UINT64 Base, UINT32 Size)
+{
+  RK_BOOT_TAGS  R;
+  uint64_t      UB, US;
+
+  memset (&R, 0xAA, sizeof (R));
+  RkGetBootTags (&R);
+  ub_param_parse_optee_mem (&UB, &US);
+  CHECK_EQ (R.TeeBase, Base);
+  CHECK_EQ (R.TeeSize, Size);
+  if ((R.TeeBase != Base) || (R.TeeSize != Size)) {
+    printf ("    [%s] library 0x%llx+0x%x, U-Boot 0x%llx+0x%llx\n", What, (unsigned long long)R.TeeBase, R.TeeSize,
+            (unsigned long long)UB, (unsigned long long)US);
+  }
+}
+
+static void TestLegacyTos (void)
+{
+  // Tags present (boot device), no TOS tag: the legacy block counts.
+  ClearTags ();
+  AddBootdev (UB_BOOT_TYPE_SD0, 0);
+  SetTosParam (0x08400000, 0x01E00000, 1, TRUE);
+  ExpectBoth ("legacy block, as BL32 writes it", 0x08400000, 0x01E00000);
+  SetTosParam (0x08400000, 0x01E00000, 1, FALSE);
+  ExpectBoth ("legacy block, bad checksum", 0, 0);
+  SetTosParam (0x08400000, 0x01E00000, 0, TRUE);
+  ExpectBoth ("legacy block, flags 0", 0, 0);
+  SetTosParam (0x08400000, 0x01E00800, 1, TRUE);
+  ExpectBoth ("legacy block, size not a page multiple", 0, 0);
+  // A TOS tag with flags 1 wins over the block.
+  SetTosParam (0x08400000, 0x01E00000, 1, TRUE);
+  AddTos (0x10000000, SIZE_16MB, 1);
+  ExpectBoth ("tag over legacy block", 0x10000000, SIZE_16MB);
+  // A TOS tag U-Boot ignores (flags 0) falls back to the block, as U-Boot does.
+  ClearTags ();
+  AddBootdev (UB_BOOT_TYPE_SD0, 0);
+  AddTos (0x10000000, SIZE_16MB, 0);
+  ExpectBoth ("tag flags 0, legacy block used", 0x08400000, 0x01E00000);
+  memset ((void *)(UINTN)UB_PARAM_OPTEE_INFO_OFFSET, 0, sizeof (struct ub_tos_param_t));
+}
+
 static void TestTags (void)
 {
   UINT32  *T;
@@ -564,8 +616,7 @@ static void TestTags (void)
   {
     RK_BOOT_TAGS  R;
     RkGetBootTags (&R);
-    KNOWN ((R.TeeSize & EFI_PAGE_MASK) == 0, "tee-size-unaligned",
-           "TOS tag size 0x%x is taken as is (not a page multiple)", R.TeeSize);
+    CHECK (R.TeeSize == 0);
   }
 
   // U-Boot only takes OP-TEE when tee_mem.flags == 1 (param_parse_optee_mem).
@@ -575,8 +626,7 @@ static void TestTags (void)
     RK_BOOT_TAGS  R, U;
     RkGetBootTags (&R);
     UbootView (&U);
-    KNOWN (R.TeeSize == U.TeeSize, "tee-flags",
-           "TOS tag 0x10000000+32 MB with flags 0: U-Boot reserves nothing for it, the library takes it");
+    CHECK (R.TeeSize == U.TeeSize);
   }
 
   // A tag with hash 0 is accepted by U-Boot ("No hash"). The miniloader in
@@ -590,8 +640,7 @@ static void TestTags (void)
   {
     RK_BOOT_TAGS  R;
     RkGetBootTags (&R);
-    printf ("note: a boot device tag with hash 0 is %s by the library (U-Boot takes it)\n",
-            R.BootDevType != 0 ? "taken" : "dropped");
+    CHECK (R.BootDevType == UB_BOOT_TYPE_SD0);
   }
 
   // Every type the miniloader may write, then each read back: U-Boot's
@@ -795,6 +844,22 @@ static void TestVop (void)
       }
     }
   }
+
+  // PD_VO off (PMU_PWRDN_ST bit 13) or its bus idle (BUS_IDLE_ST bits 7/23):
+  // the VOP registers must not be read at all (the read hangs the bus).
+  VopReset ();
+  ub_vop_show (&vopb, &Mode640, 32, 640, 480, 0x1DC00000);
+  ExpectFb ("PD_VO on", TRUE, 0x1DC00000, 640, 480, 2560, 32, RK3326_VOPB_BASE);
+  pmu_pwrdn_st = 1U << 13;
+  ExpectFb ("PD_VO off", FALSE, 0, 0, 0, 0, 0, 0);
+  pmu_pwrdn_st = ~(1U << 13);
+  ExpectFb ("other domains off", TRUE, 0x1DC00000, 640, 480, 2560, 32, RK3326_VOPB_BASE);
+  pmu_pwrdn_st = 0;
+  pmu_bus_idle_st = 1U << 7;
+  ExpectFb ("VO bus idle", FALSE, 0, 0, 0, 0, 0, 0);
+  pmu_bus_idle_st = 1U << 23;
+  ExpectFb ("VO bus idle ack", FALSE, 0, 0, 0, 0, 0, 0);
+  pmu_bus_idle_st = 0;
 }
 
 int main (void)
@@ -815,6 +880,16 @@ int main (void)
     return 1;
   }
 
+  {
+    void  *Tos = mmap ((void *)UB_PARAM_OPTEE_INFO_OFFSET, 0x1000, PROT_READ | PROT_WRITE,
+                       MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    if (Tos != (void *)UB_PARAM_OPTEE_INFO_OFFSET) {
+      printf ("FAIL: cannot map the OP-TEE block at 0x%x on this host\n", UB_PARAM_OPTEE_INFO_OFFSET);
+      return 1;
+    }
+  }
+
   TestTags ();
+  TestLegacyTos ();
   DONE_KNOWN ();
 }

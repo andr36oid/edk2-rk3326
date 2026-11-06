@@ -86,6 +86,26 @@ uint32_t  ub_tag_words (uint32_t magic);   // tag_size() of that tag type, 0 if 
 
 // What U-Boot makes of the tags (arch/arm/mach-rockchip/param.c): the OP-TEE
 // region it reserves (size 0 = none) and the boot device type it acts on.
+// arch/arm/mach-rockchip/param.c: the pre-ATAGs OP-TEE block at DDR + 34 MB.
+#define UB_PARAM_OPTEE_INFO_OFFSET  (0x02000000 + 0x00200000)
+struct ub_tos_param_t {
+	uint32_t version;
+	uint32_t checksum;
+	struct {
+		char name[8];
+		int64_t phy_addr;
+		uint32_t size;
+		uint32_t flags;
+	} tee_mem;
+	struct {
+		char name[8];
+		int64_t phy_addr;
+		uint32_t size;
+		uint32_t flags;
+	} drm_mem;
+	int64_t reserve[8];
+};
+uint32_t  ub_trust_checksum (const void *buf, uint32_t len);
 void      ub_param_parse_optee_mem (uint64_t *base, uint64_t *size);
 int       ub_param_bootdev_type (uint32_t *devtype);
 

@@ -62,7 +62,9 @@ typedef struct {
 } RK_BOOT_TAGS;
 
 /**
-  Read the miniloader's tags. Fields it has no (valid) tag for stay 0.
+  Read the miniloader's tags. Fields it has no (valid) tag for stay 0. The
+  OP-TEE region falls back to U-Boot's older parameter block at 34 MB (also
+  without a tag list, as after U-Boot).
   Returns EFI_NOT_FOUND if there is no tag list at all.
 **/
 EFI_STATUS

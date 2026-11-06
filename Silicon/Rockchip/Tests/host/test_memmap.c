@@ -42,6 +42,13 @@ EFI_STATUS EFIAPI RkGetActiveFramebuffer (OUT RK_FRAMEBUFFER_INFO *Info)
   return EFI_SUCCESS;
 }
 
+// MemoryMapLib turns the screen log off when it drops a live framebuffer.
+static BOOLEAN  mLogOff;
+VOID EFIAPI RkLogSetFramebuffer (UINT64 Base, UINT32 Width, UINT32 Height, UINT32 Stride, UINT32 Bpp)
+{
+  mLogOff = (Width == 0) || (Height == 0) || (Bpp == 0);
+}
+
 EFI_STATUS EFIAPI RkGetBootTags (OUT RK_BOOT_TAGS *Tags)
 {
   mInfoCalls++;
@@ -80,8 +87,8 @@ RETURN_STATUS EFIAPI AsciiStrCpyS (OUT CHAR8 *Dest, IN UINTN DestMax, IN CONST C
 #define FD_BASE       0x02000000ULL    // r36s.toml / PLAN: FD 0x02000000 + 0xFF000
 #define FD_END        0x020FF000ULL
 #define HEAP_SIZE     (80ULL << 20)    // PLAN: DXE heap 80 MB
-#define TEE_BASE      0x08400000ULL    // trust.img: BL32 LoadAddr 0x08400000 (PLAN: +16 MB)
-#define TEE_SIZE      0x01000000ULL
+#define TEE_BASE      0x08400000ULL    // trust.img: BL32 LoadAddr 0x08400000
+#define TEE_SIZE      0x01E00000ULL    // BL32 writes 30 MB in its tag and tos_param; kernel logs: 32 MB short
 #define MMIO_BASE     0xFF000000ULL    // AGENT-BRIEF: peripherals 0xFF000000-0xFFFFFFFF
 #define MMIO_SIZE     0x01000000ULL
 #define STACK_BASE    ((UINT64)_PCD_VALUE_PcdCPUCoresStackBase)     // r36s.dsc
@@ -194,6 +201,7 @@ static void RunCase (CONST CASE *C)
   mDram      = C->Dram;
   mHaveFb    = C->FbBase != 0;
   mTagStatus = C->Tag ? EFI_SUCCESS : EFI_NOT_FOUND;
+  mLogOff    = FALSE;
   memset (&mFb, 0, sizeof (mFb));
   memset (&mTags, 0, sizeof (mTags));
   if (mHaveFb) {
@@ -312,7 +320,7 @@ static void RunCase (CONST CASE *C)
       Free = (P != NULL) && (P->MemoryType == EfiConventionalMemory);
     }
 
-    EXPECT ("fb-log", !Free, "the screen log draws on 0x%llx-0x%llx, which the map hands out as free RAM",
+    EXPECT ("fb-log", !Free || mLogOff, "the screen log draws on 0x%llx-0x%llx, which the map hands out as free RAM",
             (unsigned long long)FbStart, (unsigned long long)FbEnd);
   }
 
@@ -357,20 +365,15 @@ static CONST CASE  Cases[] = {
   { "logo ends at the top of RAM",    512 * MB,  LOGO32 (0x20000000 - 640 * 480 * 4), NOTAG, 512 * MB, TRUE, DEFTEE },
   { "logo at an odd address",         512 * MB,  0x1DC00800, 641, 479, 1924, 24, NOTAG, 512 * MB, TRUE, DEFTEE },
   { "widest stride",                  512 * MB,  0x1D000000, 640, 480, 0x1FFF * 4, 32, NOTAG, 512 * MB, TRUE, DEFTEE },
-  { "logo right above OP-TEE",        512 * MB,  LOGO32 (0x09400000), NOTAG, 512 * MB, TRUE,  DEFTEE },
+  { "logo right above OP-TEE",        512 * MB,  LOGO32 (0x0A200000), NOTAG, 512 * MB, TRUE,  DEFTEE },
   // Framebuffers the map cannot keep.
   { "logo above the RAM",             512 * MB,  LOGO24 (0x30000000), NOTAG, 512 * MB, FALSE, DEFTEE },
-  { "logo across the top of RAM",     512 * MB,  LOGO32 (0x1FF80000), NOTAG, 512 * MB, FALSE, DEFTEE,
-    "fb-unreserved-drawn", "fb-log" },
-  { "logo inside the DXE heap",       512 * MB,  LOGO32 (0x04000000), NOTAG, 512 * MB, FALSE, DEFTEE,
-    "fb-unreserved-drawn", "fb-log" },
-  { "logo between heap and OP-TEE",   512 * MB,  LOGO32 (0x08000000), NOTAG, 512 * MB, FALSE, DEFTEE,
-    "fb-unreserved-drawn", "fb-log" },
+  { "logo across the top of RAM",     512 * MB,  LOGO32 (0x1FF80000), NOTAG, 512 * MB, FALSE, DEFTEE },
+  { "logo inside the DXE heap",       512 * MB,  LOGO32 (0x04000000), NOTAG, 512 * MB, FALSE, DEFTEE },
+  { "logo between heap and OP-TEE",   512 * MB,  LOGO32 (0x08000000), NOTAG, 512 * MB, FALSE, DEFTEE },
   { "logo on OP-TEE",                 512 * MB,  LOGO32 (0x08800000), NOTAG, 512 * MB, FALSE, DEFTEE },
-  { "logo in low RAM",                512 * MB,  LOGO32 (0x00400000), NOTAG, 512 * MB, FALSE, DEFTEE,
-    "fb-unreserved-drawn", "fb-log" },
-  { "logo on BL31/ramoops",           512 * MB,  LOGO32 (0x00100000), NOTAG, 512 * MB, FALSE, DEFTEE,
-    "fb-unreserved-drawn", "fb-log" },
+  { "logo in low RAM",                512 * MB,  LOGO32 (0x00400000), NOTAG, 512 * MB, FALSE, DEFTEE },
+  { "logo on BL31/ramoops",           512 * MB,  LOGO32 (0x00100000), NOTAG, 512 * MB, FALSE, DEFTEE },
   { "logo 24 bpp in the heap",        512 * MB,  LOGO24 (0x04000000), NOTAG, 512 * MB, FALSE, DEFTEE },
   // Miniloader tags.
   { "tag: OP-TEE as trust.img",       512 * MB,  LOGO24 (0x1DC00000), TRUE, TEE_BASE, TEE_SIZE, 512 * MB, TRUE, DEFTEE },
@@ -380,13 +383,12 @@ static CONST CASE  Cases[] = {
   { "tag: no OP-TEE in it",           512 * MB,  LOGO24 (0x1DC00000), TRUE, 0, 0, 512 * MB, TRUE, DEFTEE },
   { "tag: OP-TEE over the logo",      512 * MB,  LOGO24 (0x1DC00000), TRUE, 0x1D000000, 32 * MB, 512 * MB, FALSE, 0x1D000000, 32 * MB },
   { "tag: OP-TEE 1 MB + 2 KB",        512 * MB,  LOGO24 (0x1DC00000), TRUE, TEE_BASE, SIZE_1MB + 0x800, 512 * MB, TRUE,
-    TEE_BASE, SIZE_1MB + 0x800, "tee-size-unaligned", "aligned" },
+    DEFTEE },
   { "tag: OP-TEE above 512 MB, 1 GB", 1024 * MB, LOGO24 (0x3DC00000), TRUE, 0x30000000, 16 * MB, 1024 * MB, TRUE,
-    0x30000000, 16 * MB, "tee-above-512m", "tee" },
+    0x30000000, 16 * MB },
   // Records the decoder accepts but no console has.
   { "128 MB",                         128 * MB,  NOFB, NOTAG, 128 * MB, FALSE, DEFTEE, "dram-128m", "ram-top" },
-  { "4 GB record",                    SIZE_4GB,  LOGO24 (0xFDC00000), NOTAG, 0xFF000000, TRUE, DEFTEE,
-    "dram-4g", "ram-top,mmio,sorted" },
+  { "4 GB record",                    SIZE_4GB,  LOGO24 (0xFDC00000), NOTAG, 0xFF000000, TRUE, DEFTEE },
 };
 
 int main (void)
@@ -431,8 +433,7 @@ int main (void)
   R = ByName (M, N, "UEFI Log");
   CHECK (R != NULL);
   if (R != NULL) {
-    KNOWN (R->ArmAttributes != ARM_MEMORY_REGION_ATTRIBUTE_WRITE_BACK, "log-cached",
-           "\"UEFI Log\" 0x%llx+0x%llx is mapped write-back", (unsigned long long)R->Address, (unsigned long long)R->Length);
+    CHECK (R->ArmAttributes == ARM_MEMORY_REGION_ATTRIBUTE_UNCACHED_UNBUFFERED);
   }
 
   DONE_KNOWN ();

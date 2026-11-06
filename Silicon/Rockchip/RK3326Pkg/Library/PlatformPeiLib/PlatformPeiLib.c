@@ -62,7 +62,8 @@ PlatformPeim (
   }
 
   Info.FramebufferValid = !EFI_ERROR (RkGetActiveFramebuffer (&Info.Framebuffer));
-  if (EFI_ERROR (RkGetBootTags (&Info.BootTags))) {
+  // U-Boot clears the miniloader's tags before it starts anything.
+  if (EFI_ERROR (RkGetBootTags (&Info.BootTags)) && (Info.BootloaderFdt == 0)) {
     DEBUG ((DEBUG_WARN, "RK3326: no miniloader tags at 0x1FE000\n"));
   }
 

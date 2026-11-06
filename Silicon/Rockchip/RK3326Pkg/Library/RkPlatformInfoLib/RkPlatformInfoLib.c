@@ -30,6 +30,11 @@ RkGetDramSize (
   UINT64  TotalMb  = 0;
   UINT32  Ch;
 
+  // Nothing recorded (the DDR init always writes a version in OS_REG3).
+  if ((Reg == 0) && (Reg1 == 0)) {
+    return 0;
+  }
+
   for (Ch = 0; Ch < Channels; Ch++) {
     UINT32  Rank   = 1 + BITS (Reg, 11 + Ch * 16, 1);
     UINT32  Col0   = 9 + BITS (Reg, 9 + Ch * 16, 3);
@@ -78,6 +83,12 @@ RkGetDramSize (
   // PX30 addresses at most 4 GB; anything outside 128 MB..4 GB is a bad record.
   if (TotalMb < 128 || TotalMb > 4096) {
     return 0;
+  }
+
+  // U-Boot caps it at SDRAM_MAX_SIZE (sdram_common.c): the registers start
+  // at 0xFF000000.
+  if (TotalMb > (0xFF000000 >> 20)) {
+    TotalMb = 0xFF000000 >> 20;
   }
 
   return TotalMb << 20;
@@ -131,12 +142,30 @@ ReadVopWindow (
   return Info->Stride >= Width * (Info->BitsPerPixel / 8);
 }
 
+//
+// The VOPs sit in PD_VO, which is off at reset: U-Boot proper powers it
+// (px30.c arch_cpu_init). Reading a VOP register in a domain that is off, or
+// whose bus is idle, can stall the bus, so with no U-Boot before us there is
+// no framebuffer to find.
+//
+#define PMU_PWRDN_ST     0xFF000020
+#define PMU_BUS_IDLE_ST  0xFF00006C
+#define PD_VO_PWR        BIT13
+#define PD_VO_ACK        BIT7
+#define PD_VO_IDLE       BIT23
+
 EFI_STATUS
 EFIAPI
 RkGetActiveFramebuffer (
   OUT RK_FRAMEBUFFER_INFO  *Info
   )
 {
+  if (((MmioRead32 (PMU_PWRDN_ST) & PD_VO_PWR) != 0) ||
+      ((MmioRead32 (PMU_BUS_IDLE_ST) & (PD_VO_ACK | PD_VO_IDLE)) != 0))
+  {
+    return EFI_NOT_FOUND;
+  }
+
   if (ReadVopWindow (RK3326_VOPB_BASE, Info) || ReadVopWindow (RK3326_VOPL_BASE, Info)) {
     return EFI_SUCCESS;
   }
@@ -147,7 +176,8 @@ RkGetActiveFramebuffer (
 //
 // Miniloader parameter tags: a list of { UINT32 SizeInWords; UINT32 Magic;
 // payload; UINT32 Hash } starting with a CORE tag, in the 8 KB below 2 MB.
-// The hash covers the tag up to (not including) itself.
+// The hash covers the tag up to (not including) itself; a hash word of 0
+// means none was computed (OP-TEE writes its TOS_MEM tag that way).
 //
 #define ATAGS_BASE        0x001FE000
 #define ATAGS_SIZE        0x2000
@@ -180,6 +210,33 @@ typedef struct {
 } ATAG_TOS_MEM_DATA;
 #pragma pack()
 
+//
+// U-Boot's older place for the OP-TEE region (param.c, PARAM_OPTEE_INFO_OFFSET):
+// a tos_param_t 34 MB into DRAM, natural alignment (the 64-bit bases at 16
+// and 40, read here as two words), with a 16-bit checksum (trust_checksum)
+// over everything after its first 8 bytes. The shipped OP-TEE writes it next
+// to its TOS_MEM tag, and U-Boot does not clear it.
+//
+#define TOS_PARAM_BASE  0x02200000
+
+typedef struct {
+  UINT32    Version;
+  UINT32    Checksum;
+  CHAR8     TeeName[8];
+  UINT32    TeeBaseLow;
+  UINT32    TeeBaseHigh;
+  UINT32    TeeSize;
+  UINT32    TeeFlags;
+  CHAR8     DrmName[8];
+  UINT32    DrmBaseLow;
+  UINT32    DrmBaseHigh;
+  UINT32    DrmSize;
+  UINT32    DrmFlags;
+  UINT32    Reserve[16];
+} TOS_PARAM;
+
+STATIC_ASSERT (sizeof (TOS_PARAM) == 120, "tos_param_t is 120 bytes");
+
 STATIC
 UINT32
 AtagHash (
@@ -208,6 +265,7 @@ FindAtag (
   CONST UINT8        *End = Pos + ATAGS_SIZE;
   CONST ATAG_HEADER  *Tag;
   UINTN              Bytes;
+  UINT32             Stored;
 
   Tag = (CONST ATAG_HEADER *)Pos;
   if (Tag->Magic != ATAG_CORE) {
@@ -222,13 +280,54 @@ FindAtag (
     }
 
     if ((Tag->Magic == Magic) && (Bytes >= sizeof (ATAG_HEADER) + MinPayload + 4)) {
-      return (AtagHash (Pos, Bytes - 4) == *(CONST UINT32 *)(Pos + Bytes - 4)) ? Tag : NULL;
+      // As U-Boot's atags_get_tag: no hash (0) is taken, a wrong one is not.
+      Stored = *(CONST UINT32 *)(Pos + Bytes - 4);
+      return ((Stored == 0) || (AtagHash (Pos, Bytes - 4) == Stored)) ? Tag : NULL;
     }
 
     Pos += Bytes;
   }
 
   return NULL;
+}
+
+STATIC
+UINT16
+TosChecksum (
+  IN CONST UINT8  *Data,
+  IN UINTN        Length
+  )
+{
+  UINT16  Sum = 0;
+  UINTN   Index;
+
+  for (Index = 0; Index < Length; Index++) {
+    Sum = (UINT16)(Sum + (((Index % 2) != 0) ? ((UINT16)Data[Index] << 8) : Data[Index]));
+  }
+
+  return (UINT16)~Sum;
+}
+
+//
+// U-Boot takes the region only with flags 1. Past that, only a region that
+// looks like OP-TEE's: below 4 GB, whole 4 KB pages, 1..64 MB.
+//
+STATIC
+VOID
+TakeTee (
+  OUT RK_BOOT_TAGS  *Tags,
+  IN  UINT32        BaseLow,
+  IN  UINT32        BaseHigh,
+  IN  UINT32        Size,
+  IN  UINT32        Flags
+  )
+{
+  if ((Flags == 1) && (BaseHigh == 0) && (BaseLow != 0) && ((BaseLow & EFI_PAGE_MASK) == 0) &&
+      ((Size & EFI_PAGE_MASK) == 0) && (Size >= SIZE_1MB) && (Size <= SIZE_64MB))
+  {
+    Tags->TeeBase = BaseLow;
+    Tags->TeeSize = Size;
+  }
 }
 
 EFI_STATUS
@@ -240,33 +339,36 @@ RkGetBootTags (
   CONST ATAG_HEADER        *Tag;
   CONST ATAG_BOOTDEV_DATA  *Dev;
   CONST ATAG_TOS_MEM_DATA  *Tos;
-  UINT64                   TeeBase;
+  CONST TOS_PARAM          *Param;
+  BOOLEAN                  HaveTags;
 
   ZeroMem (Tags, sizeof (*Tags));
-  if (((CONST ATAG_HEADER *)(UINTN)ATAGS_BASE)->Magic != ATAG_CORE) {
-    return EFI_NOT_FOUND;
-  }
+  HaveTags = (((CONST ATAG_HEADER *)(UINTN)ATAGS_BASE)->Magic == ATAG_CORE);
+  if (HaveTags) {
+    Tag = FindAtag (ATAG_BOOTDEV, sizeof (ATAG_BOOTDEV_DATA));
+    if (Tag != NULL) {
+      Dev               = (CONST ATAG_BOOTDEV_DATA *)(Tag + 1);
+      Tags->BootDevType = Dev->DevType;
+      Tags->BootDevNum  = Dev->DevNum;
+    }
 
-  Tag = FindAtag (ATAG_BOOTDEV, sizeof (ATAG_BOOTDEV_DATA));
-  if (Tag != NULL) {
-    Dev               = (CONST ATAG_BOOTDEV_DATA *)(Tag + 1);
-    Tags->BootDevType = Dev->DevType;
-    Tags->BootDevNum  = Dev->DevNum;
-  }
-
-  Tag = FindAtag (ATAG_TOS_MEM, sizeof (ATAG_TOS_MEM_DATA));
-  if (Tag != NULL) {
-    Tos     = (CONST ATAG_TOS_MEM_DATA *)(Tag + 1);
-    TeeBase = LShiftU64 (Tos->TeeBaseHigh, 32) | Tos->TeeBaseLow;
-    // Only take a region that looks like OP-TEE's: below 4 GB, page
-    // aligned, 1..64 MB.
-    if ((TeeBase != 0) && (TeeBase < SIZE_4GB) && ((TeeBase & EFI_PAGE_MASK) == 0) &&
-        (Tos->TeeSize >= SIZE_1MB) && (Tos->TeeSize <= SIZE_64MB))
-    {
-      Tags->TeeBase = TeeBase;
-      Tags->TeeSize = Tos->TeeSize;
+    Tag = FindAtag (ATAG_TOS_MEM, sizeof (ATAG_TOS_MEM_DATA));
+    if (Tag != NULL) {
+      Tos = (CONST ATAG_TOS_MEM_DATA *)(Tag + 1);
+      TakeTee (Tags, Tos->TeeBaseLow, Tos->TeeBaseHigh, Tos->TeeSize, Tos->TeeFlags);
     }
   }
 
-  return EFI_SUCCESS;
+  //
+  // No usable tag (after U-Boot there are none: it clears them before it
+  // starts us): the older block, which U-Boot also falls back to.
+  //
+  if (Tags->TeeSize == 0) {
+    Param = (CONST TOS_PARAM *)(UINTN)TOS_PARAM_BASE;
+    if ((UINT32)TosChecksum ((CONST UINT8 *)Param + 8, sizeof (TOS_PARAM) - 8) == Param->Checksum) {
+      TakeTee (Tags, Param->TeeBaseLow, Param->TeeBaseHigh, Param->TeeSize, Param->TeeFlags);
+    }
+  }
+
+  return HaveTags ? EFI_SUCCESS : EFI_NOT_FOUND;
 }

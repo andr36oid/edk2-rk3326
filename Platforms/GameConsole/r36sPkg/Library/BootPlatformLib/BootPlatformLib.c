@@ -25,12 +25,13 @@
 //
 // Same layout as MemoryMapLib: BL31 and its shared memory sit in the first
 // 2 MB (U-Boot's bidram keeps 0-2 MB out of /memory, ramoops lives there),
-// OP-TEE where the miniloader's tags say if MemoryMapLib took that, else at
-// 0x08400000. Only used when no bootloader FDT gives /memory.
+// OP-TEE where its tag or parameter block says if MemoryMapLib took that, else
+// the trust.img default, 30 MB at 0x08400000 (what U-Boot keeps out of
+// /memory). Only used when no bootloader FDT gives /memory.
 //
 #define LINUX_RAM_START  0x00200000
 #define OPTEE_BASE       0x08400000
-#define OPTEE_SIZE       0x01000000
+#define OPTEE_SIZE       0x01E00000
 
 /**
   TRUE if the UEFI memory map has a reserved range starting at Base that is

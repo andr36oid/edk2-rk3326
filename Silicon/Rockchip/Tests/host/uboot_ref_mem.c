@@ -394,9 +394,28 @@ uint32_t ub_tag_words (uint32_t magic)
 // ---- arch/arm/mach-rockchip/param.c (ATAG halves; the legacy OP-TEE info
 // block at 34 MB is not modelled: no tag means no OP-TEE region here) ----------
 
+// ---- arch/arm/mach-rockchip/param.c (legacy block at DDR + 34 MB) ---------
+
+static uint16_t trust_checksum(const uint8_t *buf, uint16_t len)
+{
+	uint16_t i, checksum = 0;
+
+	for (i = 0; i < len; i++) {
+		if (i % 2)
+			checksum += buf[i] << 8;
+		else
+			checksum += buf[i];
+	}
+	checksum = ~checksum;
+
+	return checksum;
+}
+
 void ub_param_parse_optee_mem (uint64_t *base, uint64_t *size)
 {
+	struct ub_tos_param_t *tos_parameter;
 	struct tag *t = NULL;
+	uint32_t checksum;
 
 	*base = 0;
 	*size = 0;
@@ -405,6 +424,23 @@ void ub_param_parse_optee_mem (uint64_t *base, uint64_t *size)
 		*base = t->u.tos_mem.tee_mem.phy_addr;
 		*size = t->u.tos_mem.tee_mem.size;
 	}
+
+	/* Legacy */
+	if (!*size) {
+		tos_parameter = (struct ub_tos_param_t *)(uintptr_t)UB_PARAM_OPTEE_INFO_OFFSET;
+		checksum = trust_checksum((uint8_t *)(unsigned long)tos_parameter + 8,
+					  sizeof(struct ub_tos_param_t) - 8);
+		if ((checksum == tos_parameter->checksum) &&
+		    (tos_parameter->tee_mem.flags == 1)) {
+			*base = tos_parameter->tee_mem.phy_addr;
+			*size = tos_parameter->tee_mem.size;
+		}
+	}
+}
+
+uint32_t ub_trust_checksum (const void *buf, uint32_t len)
+{
+	return trust_checksum(buf, (uint16_t)len);
 }
 
 int ub_param_bootdev_type (uint32_t *devtype)

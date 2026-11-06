@@ -21,6 +21,7 @@
   BaseLib
   BaseMemoryLib
   PcdLib
+  RkLogLib
   RkPlatformInfoLib
 
 [FixedPcd]

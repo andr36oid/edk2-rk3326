@@ -15,8 +15,10 @@
 
 #define FALLBACK_DRAM_SIZE  SIZE_512MB
 #define DXE_HEAP_SIZE       0x05000000      // 80 MB
+// The shipped OP-TEE (trust.img BL32) takes 30 MB here: 26 MB TZDRAM and
+// 4 MB shared memory; the kernel sees 32 MB less than the DRAM (2 MB at 0).
 #define OPTEE_BASE          0x08400000
-#define OPTEE_SIZE          0x01000000
+#define OPTEE_SIZE          0x01E00000
 
 STATIC EFI_MEMORY_REGION_DESCRIPTOR  mMap[24];
 STATIC UINT8                         mCount;
@@ -83,15 +85,6 @@ BuildMap (
   EFI_PHYSICAL_ADDRESS  FbEnd     = 0;
   BOOLEAN               HaveFb;
 
-  // OP-TEE where the miniloader says it put it, if that leaves our own
-  // regions alone; else the trust.img default.
-  if (!EFI_ERROR (RkGetBootTags (&Tags)) && (Tags.TeeSize != 0) && (Tags.TeeBase >= HeapEnd) &&
-      (Tags.TeeBase + Tags.TeeSize <= FALLBACK_DRAM_SIZE))
-  {
-    TeeBase = Tags.TeeBase;
-    TeeEnd  = Tags.TeeBase + Tags.TeeSize;
-  }
-
   HaveFb = !EFI_ERROR (RkGetActiveFramebuffer (&Fb));
   if (HaveFb) {
     FbStart = Fb.Base & ~(EFI_PHYSICAL_ADDRESS)EFI_PAGE_MASK;
@@ -103,9 +96,26 @@ BuildMap (
     RamTop = (FbEnd > FALLBACK_DRAM_SIZE) ? SIZE_1GB : FALLBACK_DRAM_SIZE;
   }
 
+  // The registers start at 0xFF000000 (U-Boot's SDRAM_MAX_SIZE).
+  RamTop = MIN (RamTop, 0xFF000000ULL);
+
+  // OP-TEE where its tag or parameter block says it is, if that leaves our
+  // own regions alone and is inside the RAM (a framebuffer on it is dropped
+  // below); else the trust.img default.
+  RkGetBootTags (&Tags);
+  if ((Tags.TeeSize != 0) && (((Tags.TeeBase | Tags.TeeSize) & EFI_PAGE_MASK) == 0) && (Tags.TeeBase >= HeapEnd) &&
+      (Tags.TeeBase + Tags.TeeSize <= RamTop))
+  {
+    TeeBase = Tags.TeeBase;
+    TeeEnd  = Tags.TeeBase + Tags.TeeSize;
+  }
+
   // A framebuffer outside the upper RAM block (or past the end) is not ours to keep.
+  // The screen log has drawn on it since SEC began; it must stop before
+  // those pages go out as free RAM.
   if (HaveFb && ((FbStart < TeeEnd) || (FbEnd > RamTop))) {
     HaveFb = FALSE;
+    RkLogSetFramebuffer (0, 0, 0, 0, 0);
   }
 
   mCount = 0;
@@ -115,8 +125,10 @@ BuildMap (
   Add ("BL31", 0x00000000, 0x00110000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK);
   Add ("Ramoops", 0x00110000, 0x000F0000, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK);
   AddRam (0x00200000, RK_LOG_BASE);
-  // The firmware log ring (this boot and the previous one).
-  Add ("UEFI Log", RK_LOG_BASE, RK_LOG_SIZE, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK);
+  // The firmware log ring (this boot and the previous one). Not cached: after
+  // a hang ends in a reset, the next start reads what reached DRAM, and dirty
+  // cache lines (the header with the count is written on every byte) do not.
+  Add ("UEFI Log", RK_LOG_BASE, RK_LOG_SIZE, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, UNCACHED_UNBUFFERED_XN);
   // Where U-Boot put the FDT it passed in x0; DXE reads it.
   Add ("Bootloader FDT", RK_BOOTLOADER_FDT_BASE, RK_BOOTLOADER_FDT_SIZE, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK);
   Add ("UEFI FD", FdBase, FdEnd - FdBase, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK);

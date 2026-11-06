@@ -54,9 +54,9 @@ PmuWait (
 
 /**
   rockchip_pd_power(PD_VO, on): power up, wait for the status, then take
-  the bus out of idle and wait for ack and idle to clear. U-Boot never
-  touches it (the domain comes up powered); this is for a stage that left
-  it off.
+  the bus out of idle and wait for ack and idle to clear. The domain is off
+  at reset and U-Boot proper powers it (px30.c arch_cpu_init); this is for a
+  start without U-Boot.
 **/
 STATIC
 EFI_STATUS
