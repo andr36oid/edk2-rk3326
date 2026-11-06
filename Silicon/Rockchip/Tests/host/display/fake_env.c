@@ -94,7 +94,7 @@ DebugPrint (UINTN ErrorLevel, CONST CHAR8 *Format, ...)
         n += snprintf (out + n, sizeof (out) - n, "%016llX", (unsigned long long)(UINTN)va_arg (ap, void *));  // as edk2 prints it
         break;
       case 'd': case 'u': case 'x': case 'X':
-        spec[s++] = 'l'; spec[s++] = 'l'; spec[s++] = *f; spec[s] = 0;
+        spec[s++] = 'l'; spec[s++] = 'l'; spec[s++] = (*f == 'x') ? 'X' : *f; spec[s] = 0;   // edk2 hex is upper case
         if (longarg) {
           n += snprintf (out + n, sizeof (out) - n, spec, va_arg (ap, unsigned long long));
         } else if (*f == 'd') {
