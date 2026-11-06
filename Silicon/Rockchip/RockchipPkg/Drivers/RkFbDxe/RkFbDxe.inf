@@ -15,22 +15,13 @@
   RockchipPkg/RockchipPkg.dec
 
 [LibraryClasses]
-  BaseLib
-  BaseMemoryLib
   DebugLib
-  DevicePathLib
-  FrameBufferBltLib
   HobLib
-  MemoryAllocationLib
-  UefiBootServicesTableLib
+  RkGopLib
   UefiDriverEntryPoint
 
 [Guids]
   gRkPlatformInfoHobGuid
-
-[Protocols]
-  gEfiGraphicsOutputProtocolGuid
-  gEfiDevicePathProtocolGuid
 
 [Depex]
   TRUE

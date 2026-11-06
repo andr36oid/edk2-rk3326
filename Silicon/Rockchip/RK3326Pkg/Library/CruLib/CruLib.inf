@@ -18,6 +18,8 @@
 
 [Sources]
   CruLib.c
+  CruDisplay.c
+  CruPll.h
 
 [Packages]
   ArmPkg/ArmPkg.dec

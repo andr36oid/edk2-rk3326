@@ -24,7 +24,7 @@ APRIORI DXE {
 !if $(USE_CUSTOM_DISPLAY_DRIVER) == 0
   INF SiliciumPkg/Drivers/SimpleFbDxe/SimpleFbDxe.inf
 !else
-  INF RockchipPkg/Drivers/RkFbDxe/RkFbDxe.inf
+  INF RockchipPkg/Drivers/RkDisplayDxe/RkDisplayDxe.inf
 !endif
 
   INF EmbeddedPkg/SimpleTextInOutSerial/SimpleTextInOutSerial.inf
