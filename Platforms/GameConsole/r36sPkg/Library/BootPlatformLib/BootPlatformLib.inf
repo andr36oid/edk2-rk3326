@@ -1,0 +1,27 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = BootPlatformLibRk3326
+  FILE_GUID                      = A61E2F80-7C35-4B9D-8E02-5F4B1D3C7A98
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = BootPlatformLib
+
+[Sources]
+  BootPlatformLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Andr36oidPkg/Andr36oidPkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DevicePathLib
+  HobLib
+
+[Guids]
+  gRkPlatformInfoHobGuid
+
+[Protocols]
+  gEdkiiNonDiscoverableDeviceProtocolGuid

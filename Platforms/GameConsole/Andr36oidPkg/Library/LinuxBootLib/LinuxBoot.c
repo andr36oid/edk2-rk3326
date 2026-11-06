@@ -140,7 +140,7 @@ LinuxBootPrepare (
   }
 
   DEBUG ((
-    DEBUG_INFO,
+    DEBUG_INIT,
     "Linux: Image %lu bytes, text_offset 0x%lx, image_size 0x%lx, flags 0x%lx\n",
     (UINT64)Params->KernelSize,
     Info.TextOffset,
@@ -225,7 +225,7 @@ LinuxBootPrepare (
   }
 
   DEBUG ((
-    DEBUG_INFO,
+    DEBUG_INIT,
     "Linux: kernel 0x%lx (entry 0x%lx), initrd 0x%lx+0x%lx, FDT 0x%lx (%u bytes)\n",
     Handoff->KernelBase,
     Handoff->KernelEntry,
@@ -276,7 +276,7 @@ LinuxBootStart (
   UINT64                 Fdt   = Handoff->Fdt;
 
   // The last thing that goes to the log before boot services end.
-  DEBUG ((DEBUG_INFO, "Linux: starting the kernel at 0x%lx, FDT 0x%lx\n", Entry, Fdt));
+  DEBUG ((DEBUG_INIT, "Linux: starting the kernel at 0x%lx, FDT 0x%lx\n", Entry, Fdt));
 
   //
   // What the kernel reads before its MMU is on has to be in RAM, not only in

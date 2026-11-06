@@ -1,0 +1,45 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = Andr36oidBoot
+  # gAndr36oidBootAppFileGuid
+  FILE_GUID                      = 1F3C9E57-8A2B-4D61-9C0E-5B7D24A16F83
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = Andr36oidBootMain
+
+[Sources]
+  Andr36oidBoot.c
+  Andr36oidBoot.h
+  BootFiles.c
+  BootMenu.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  RockchipPkg/RockchipPkg.dec
+  Andr36oidPkg/Andr36oidPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  BootKeysLib
+  BootPlatformLib
+  BootPolicyLib
+  DebugLib
+  DevicePathLib
+  LinuxBootLib
+  MemoryAllocationLib
+  PcdLib
+  PrintLib
+  RkLogLib
+  RkPmicLib
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+  UefiRuntimeServicesTableLib
+
+[Protocols]
+  gEfiSimpleFileSystemProtocolGuid
+
+[FeaturePcd]
+  gAndr36oidPkgTokenSpaceGuid.PcdBootSerialConsole
