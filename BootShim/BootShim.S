@@ -7,11 +7,25 @@ _Head:
 #define KERNEL_FLAGS 0
 #endif
 
+/*
+ * IN_PLACE: the header asks the loader (U-Boot booti) to put the image so
+ * that _Payload lands exactly on FD_BASE; the shim then jumps without
+ * copying. Without it a loader that puts the image at FD_BASE makes the
+ * copy below overwrite the running copy loop.
+ */
+#if IN_PLACE == 1
+_StackBase:
+  .quad FD_BASE - (_Payload - _Head)  /* Text Offset */
+
+_StackSize:
+  .quad FD_SIZE + (_Payload - _Head)  /* Image Size */
+#else
 _StackBase:
   .quad FD_BASE         /* Text Offset */
 
 _StackSize:
   .quad FD_SIZE         /* Image Size */
+#endif
   .quad KERNEL_FLAGS    /* Flags */
   .quad 0               /* Reserved */
   .quad 0               /* Reserved */
@@ -32,6 +46,10 @@ _CopyLoop:
   stp   x2, x3, [x5], #16
   subs  x6, x6, #16
   b.ne  _CopyLoop
+  dsb   sy              /* copy done before fetching from it */
+  ic    iallu           /* the loader may have left the I-cache on */
+  dsb   sy
+  isb
   ldr   x5, =FD_BASE
 
 _Entry:
@@ -40,7 +58,14 @@ _Entry:
 _Dead:
   b     _Dead
 
+/* The ldr literals go here, not after _Payload where the FD is appended. */
+  .ltorg
+
 .text
+#if IN_PLACE == 1
+.balign 256             /* fixed FD offset: the load address stays FD_BASE - 0x100 */
+#else
 .align 4
+#endif
 
 _Payload:
