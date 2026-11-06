@@ -12,3 +12,10 @@ test_dwmmc
 test_power
 test_usb
 dump_usb
+test_memmap
+test_platinfo
+test_pei
+test_log
+test_reset
+test_saradc
+test_sdplat

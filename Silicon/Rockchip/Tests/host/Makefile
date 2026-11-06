@@ -5,6 +5,8 @@
 #   make              build and run everything
 #   make DTB=<file>   also run the PMIC test against a real device tree (default:
 #                     the shipped Android DTB if it is on this machine)
+#   STRICT_KNOWN=1 make   also fail on the firmware bugs the suites know about
+#                     (printed as "KNOWN BUG <id>" on every run, see mock/known.h)
 
 MU    ?= ../../../../Mu_Basecore
 RK    := ../..
@@ -27,10 +29,20 @@ CFLAGS = -std=gnu11 -O1 -g -fshort-wchar -funsigned-char -fno-strict-aliasing -W
          -I$(R36S)/Library/BootKeysLib -I$(R36S)/Library/KeypadDeviceLib \
          -Imock -I$(RK)/RockchipPkg/Drivers/DesignWare/DwMmcHcDxe -I$(RK)/RockchipPkg/Drivers/DwUsbHostDxe
 
-TESTS = test_math test_i2c test_cru test_dwmmc test_pmic test_keys dump_keys test_clock test_board dump_clk test_power test_usb dump_usb
+TESTS = test_math test_i2c test_cru test_dwmmc test_pmic test_keys dump_keys test_clock test_board dump_clk test_power test_usb dump_usb \
+        test_memmap test_platinfo test_pei test_log test_reset test_saradc test_sdplat
+
+# The r36s layout as the build gets it (r36s.toml [uefi_fd], r36s.dsc stack).
+TOML       := ../../../../Resources/Configs/r36s.toml
+DSC        := $(R36S)/r36s.dsc
+FD_BASE    := $(shell sed -n '/^\[uefi_fd\]/,/^\[/s/^base *= *\([0-9A-Fa-fx]*\).*/\1/p' $(TOML))
+FD_SIZE    := $(shell sed -n '/^\[uefi_fd\]/,/^\[/s/^size *= *\([0-9A-Fa-fx]*\).*/\1/p' $(TOML))
+STACK_BASE := $(shell sed -n 's/.*PcdCPUCoresStackBase|\([0-9A-Fa-fx]*\).*/\1/p' $(DSC))
+STACK_SIZE := $(shell sed -n 's/.*PcdCPUCorePrimaryStackSize|\([0-9A-Fa-fx]*\).*/\1/p' $(DSC))
 
 all: $(TESTS)
 	@for t in test_math test_i2c test_cru test_dwmmc test_clock test_board test_power; do echo "== $$t"; ./$$t || exit 1; done
+	@for t in test_memmap test_platinfo test_pei test_log test_reset test_saradc test_sdplat; do echo "== $$t"; ./$$t || exit 1; done
 	@for a in 166 514 300 fail; do echo "== test_keys $$a"; ./test_keys $$a || exit 1; done
 	@for m in --bad-id --no-ack --init-fail --uboot; do echo "== test_pmic $$m"; ./test_pmic $$m || exit 1; done
 	@echo "== test_pmic with $(DTB)"; if [ -f $(DTB) ]; then ./test_pmic $(DTB) || exit 1; else echo "(no DTB, skipped)"; fi
@@ -90,3 +102,30 @@ test_usb: test_usb.c $(COMMON) $(RK)/RK3326Pkg/Library/RkUsbPlatformLib/RkUsbPla
 
 dump_usb: dump_usb.c
 	$(CC) $(CFLAGS) -I$(RK)/RK3326Pkg/Library/RkUsbPlatformLib -o $@ $<
+
+test_memmap: test_memmap.c $(COMMON) mock/known.h $(R36S)/Library/MemoryMapLib/MemoryMapLib.c $(TOML) $(DSC)
+	@test -n "$(FD_BASE)" -a -n "$(FD_SIZE)" -a -n "$(STACK_BASE)" -a -n "$(STACK_SIZE)" || { echo "no FD/stack layout in $(TOML) or $(DSC)"; exit 1; }
+	$(CC) $(CFLAGS) -I$(MU)/ArmPkg/Include -I$(R36S)/Library/MemoryMapLib \
+	  -D_PCD_VALUE_PcdFdBaseAddress=$(FD_BASE)ULL -D_PCD_VALUE_PcdFdSize=$(FD_SIZE)U \
+	  -D_PCD_VALUE_PcdCPUCoresStackBase=$(STACK_BASE)ULL -D_PCD_VALUE_PcdCPUCorePrimaryStackSize=$(STACK_SIZE)U \
+	  -o $@ test_memmap.c $(COMMON)
+
+test_platinfo: test_platinfo.c $(COMMON) mock/known.h uboot_ref_mem.c uboot_ref_mem.h $(RK)/RK3326Pkg/Library/RkPlatformInfoLib/RkPlatformInfoLib.c
+	$(CC) $(CFLAGS) -o $@ test_platinfo.c $(COMMON) uboot_ref_mem.c $(RK)/RK3326Pkg/Library/RkPlatformInfoLib/RkPlatformInfoLib.c
+
+test_pei: test_pei.c $(COMMON) $(RK)/RK3326Pkg/Library/PlatformPeiLib/PlatformPeiLib.c $(TOML)
+	@test -n "$(FD_BASE)" -a -n "$(FD_SIZE)" || { echo "no FD layout in $(TOML)"; exit 1; }
+	$(CC) $(CFLAGS) -I$(MU)/ArmPkg/Include -I$(MU)/EmbeddedPkg/Include -I$(MU)/MdeModulePkg/Include -I$(RK)/RK3326Pkg/Library/PlatformPeiLib \
+	  -D_PCD_GET_MODE_64_PcdFvBaseAddress=$(FD_BASE)ULL -D_PCD_GET_MODE_32_PcdFvSize=$(FD_SIZE)U -o $@ test_pei.c $(COMMON)
+
+test_log: test_log.c $(COMMON) mock/known.h $(RK)/RockchipPkg/Library/RkSerialPortLib/RkSerialPortLib.c $(RK)/RockchipPkg/Library/RkSerialPortLib/Font.h
+	$(CC) $(CFLAGS) -I$(RK)/RockchipPkg/Library/RkSerialPortLib -o $@ test_log.c $(COMMON)
+
+test_reset: test_reset.c $(COMMON) $(RK)/RK3326Pkg/Library/ResetSystemLib/ResetSystemLib.c
+	$(CC) $(CFLAGS) -I$(MU)/ArmPkg/Include -I$(MU)/MdeModulePkg/Include -I$(RK)/RK3326Pkg/Library/ResetSystemLib -o $@ test_reset.c $(COMMON)
+
+test_saradc: test_saradc.c $(COMMON) $(RK)/RK3326Pkg/Library/RkSaradcLib/RkSaradcLib.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+test_sdplat: test_sdplat.c $(COMMON) mock/known.h $(RK)/RK3326Pkg/Library/RkSdmmcPlatformLib/RkSdmmcPlatformLib.c $(RK)/RK3326Pkg/Library/GpioLib/GpioLib.c
+	$(CC) $(CFLAGS) -o $@ test_sdplat.c $(COMMON) $(RK)/RK3326Pkg/Library/RkSdmmcPlatformLib/RkSdmmcPlatformLib.c $(RK)/RK3326Pkg/Library/GpioLib/GpioLib.c
