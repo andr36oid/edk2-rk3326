@@ -11,6 +11,13 @@
 
 #include <Uefi.h>
 
+//
+// Where U-Boot's boot.ini puts the DTB it passes in x0 (fdt_addr_r). The
+// memory map keeps this window, so an FDT is only trusted inside it.
+//
+#define RK_BOOTLOADER_FDT_BASE  0x01F00000
+#define RK_BOOTLOADER_FDT_SIZE  0x00100000
+
 typedef struct {
   EFI_PHYSICAL_ADDRESS  Base;
   UINT32                Width;         // visible pixels
@@ -37,6 +44,31 @@ EFI_STATUS
 EFIAPI
 RkGetActiveFramebuffer (
   OUT RK_FRAMEBUFFER_INFO  *Info
+  );
+
+//
+// What the miniloader recorded about this boot (its parameter tags at
+// 2 MB - 8 KB). Boot device bits as in the tags: eMMC BIT1, SD BIT2/BIT3.
+//
+#define RK_BOOT_DEVICE_EMMC  BIT1
+#define RK_BOOT_DEVICE_SD0   BIT2
+#define RK_BOOT_DEVICE_SD1   BIT3
+
+typedef struct {
+  UINT32                  BootDevType;   // 0 if unknown
+  UINT32                  BootDevNum;
+  EFI_PHYSICAL_ADDRESS    TeeBase;       // OP-TEE, 0 if unknown
+  UINT32                  TeeSize;
+} RK_BOOT_TAGS;
+
+/**
+  Read the miniloader's tags. Fields it has no (valid) tag for stay 0.
+  Returns EFI_NOT_FOUND if there is no tag list at all.
+**/
+EFI_STATUS
+EFIAPI
+RkGetBootTags (
+  OUT RK_BOOT_TAGS  *Tags
   );
 
 /**

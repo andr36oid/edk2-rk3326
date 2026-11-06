@@ -5,7 +5,10 @@
 
 [uefi_fd]
 base = 0x02000000
-size = 0x00300000
+# Under 1 MB so the same Mu-r36s.bin also fits a uboot.img copy for the
+# miniloader (loaderimage: 4 copies of 1 MiB, 2 KiB header each):
+# BootShim (0x70) + FD must stay <= 1046528 bytes.
+size = 0x000FF000
 
 [boot_shim]
 requires_kernel_header = true
