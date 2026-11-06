@@ -115,6 +115,7 @@ typedef struct {
   BOOLEAN         EnableActiveHigh;  // regulator-fixed: on as soon as U-Boot probes it
   UINT32          StartupDelayUs;
   UINT32          MinMicroVolts;
+  CONST CHAR8     *SharedWith;     // another user of the rail: never switched off
 } RK_SUPPLY;
 
 typedef struct {

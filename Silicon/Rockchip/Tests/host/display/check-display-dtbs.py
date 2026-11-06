@@ -87,13 +87,23 @@ def gpio(node, name, ph):
     return [1, bank, c[1], c[2] & 1]
 
 
-def supply(node, name, ph):
+def supply(root, node, name, ph):
     v = node['props'].get(name)
     if v is None:
-        return [0, '', 0, 0]
-    r = ph[u32s(v)[0]]
+        return [0, '', 0, 0, '']
+    handle = u32s(v)[0]
+    r = ph[handle]
     nm = strs(r['props']['regulator-name'])[0] if 'regulator-name' in r['props'] else r['name']
-    return [1, nm, u32(r, 'regulator-min-microvolt', 0), 1 if compat(r, 'regulator-fixed') else 0]
+    # another enabled user of the rail (not this consumer, not the backlight)
+    shared = ''
+    for n in walk(root):
+        if n is node or not okay(n) or compat(n, 'pwm-backlight'):
+            continue
+        if any(k.endswith('-supply') and len(k) > 7 and len(pv) == 4 and u32s(pv)[0] == handle
+               for k, pv in n['props'].items()):
+            shared = n['name']
+            break
+    return [1, nm, u32(r, 'regulator-min-microvolt', 0), 1 if compat(r, 'regulator-fixed') else 0, shared]
 
 
 def expected(path):
@@ -143,8 +153,8 @@ def expected(path):
     out['exit_len'] = len(p.get('panel-exit-sequence', b''))
     out['reset'] = gpio(panel, 'reset-gpios', ph)
     out['enable'] = gpio(panel, 'enable-gpios', ph)
-    out['power'] = supply(panel, 'power-supply', ph)
-    out['blpower'] = supply(panel, 'backlight-supply', ph)
+    out['power'] = supply(root, panel, 'power-supply', ph)
+    out['blpower'] = supply(root, panel, 'backlight-supply', ph)
 
     bl = ph[u32s(p['backlight'])[0]]
     bp = bl['props']

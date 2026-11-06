@@ -93,6 +93,11 @@ RkSupplySet (
     return EFI_SUCCESS;
   }
 
+  if (!Enable && (Supply->SharedWith != NULL)) {
+    DEBUG ((DEBUG_INFO, "Panel: supply %a left on, %a uses it too\n", Supply->Name, Supply->SharedWith));
+    return EFI_SUCCESS;
+  }
+
   if (Supply->Fixed) {
     if (!Supply->Gpio.Valid) {
       // A fixed rail without a switch is always on.

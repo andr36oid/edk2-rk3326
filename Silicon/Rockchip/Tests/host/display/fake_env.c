@@ -276,6 +276,12 @@ INT32 EFIAPI FdtParentOffset (IN CONST VOID *Fdt, IN INT32 Node) { return fdt_pa
 INT32 EFIAPI FdtNodeOffsetByPhandle (IN CONST VOID *Fdt, IN UINT32 Phandle) { return fdt_node_offset_by_phandle (Fdt, Phandle); }
 INT32 EFIAPI FdtPathOffset (IN CONST VOID *Fdt, IN CONST CHAR8 *Path) { return fdt_path_offset (Fdt, Path); }
 INT32 EFIAPI FdtAddressCells (IN CONST VOID *Fdt, IN INT32 Node) { return fdt_address_cells (Fdt, Node); }
+INT32 EFIAPI FdtNextNode (IN CONST VOID *Fdt, IN INT32 Offset, IN INT32 *Depth) { return fdt_next_node (Fdt, Offset, Depth); }
+INT32 EFIAPI FdtFirstPropertyOffset (IN CONST VOID *Fdt, IN INT32 Node) { return fdt_first_property_offset (Fdt, Node); }
+INT32 EFIAPI FdtNextPropertyOffset (IN CONST VOID *Fdt, IN INT32 Offset) { return fdt_next_property_offset (Fdt, Offset); }
+CONST FDT_PROPERTY * EFIAPI FdtGetPropertyByOffset (IN CONST VOID *Fdt, IN INT32 Offset, IN INT32 *Len) { return (CONST FDT_PROPERTY *)fdt_get_property_by_offset (Fdt, Offset, Len); }
+CONST CHAR8 * EFIAPI FdtGetString (IN CONST VOID *Fdt, IN INT32 StrOffset, IN INT32 *Len) { return fdt_get_string (Fdt, StrOffset, Len); }
+UINT32 EFIAPI FdtGetPhandle (IN CONST VOID *Fdt, IN INT32 Node) { return fdt_get_phandle (Fdt, Node); }
 
 // ---- RkPmicLib ---------------------------------------------------------------
 

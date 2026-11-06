@@ -217,6 +217,55 @@ GetGpio (
 }
 
 /**
+  Another enabled node with a *-supply property on Reg, other than Consumer
+  and the backlight. The kernel counts a rail's users and keeps it on while
+  any is left; we keep it on at shutdown instead (EE-V12-Var2's Android DTB
+  powers the panel from vcc_sd2, the second card slot's rail).
+**/
+STATIC
+CONST CHAR8 *
+OtherSupplyUser (
+  IN CONST VOID  *Fdt,
+  IN INT32       Reg,
+  IN INT32       Consumer
+  )
+{
+  UINT32              Phandle;
+  INT32               Node;
+  INT32               Prop;
+  INT32               Len;
+  UINTN               NameLen;
+  CONST FDT_PROPERTY  *P;
+  CONST CHAR8         *Name;
+
+  Phandle = FdtGetPhandle (Fdt, Reg);
+  if (Phandle == 0) {
+    return NULL;
+  }
+
+  for (Node = FdtNextNode (Fdt, 0, NULL); Node >= 0; Node = FdtNextNode (Fdt, Node, NULL)) {
+    if ((Node == Consumer) || !NodeIsOkay (Fdt, Node) || NodeIsCompatible (Fdt, Node, "pwm-backlight")) {
+      continue;
+    }
+
+    for (Prop = FdtFirstPropertyOffset (Fdt, Node); Prop >= 0; Prop = FdtNextPropertyOffset (Fdt, Prop)) {
+      P = FdtGetPropertyByOffset (Fdt, Prop, &Len);
+      if ((P == NULL) || (Fdt32ToCpu (P->Length) != 4) || (Fdt32ToCpu (*(CONST UINT32 *)P->Data) != Phandle)) {
+        continue;
+      }
+
+      Name    = FdtGetString (Fdt, Fdt32ToCpu (P->NameOffset), NULL);
+      NameLen = (Name == NULL) ? 0 : AsciiStrLen (Name);
+      if ((NameLen > 7) && (AsciiStrCmp (Name + NameLen - 7, "-supply") == 0)) {
+        return FdtGetName (Fdt, Node, NULL);
+      }
+    }
+  }
+
+  return NULL;
+}
+
+/**
   A supply phandle: an RK817 regulator (the PMIC library switches it by
   node), or a regulator-fixed switched by a GPIO as U-Boot's fixed.c does
   it (the "gpio" specifier gives the polarity).
@@ -246,6 +295,8 @@ GetSupply (
   if (Supply->Name == NULL) {
     Supply->Name = FdtGetName (Fdt, Reg, NULL);
   }
+
+  Supply->SharedWith = OtherSupplyUser (Fdt, Reg, Node);
 
   if (NodeIsCompatible (Fdt, Reg, "regulator-fixed")) {
     Supply->Fixed          = TRUE;
@@ -708,6 +759,10 @@ LogSupply (
     ));
   if (Supply->Fixed && Supply->Gpio.Valid) {
     DEBUG ((DEBUG_INFO, " GPIO%u_%u%a", Supply->Gpio.Bank, Supply->Gpio.Pin, Supply->Gpio.ActiveLow ? " low" : ""));
+  }
+
+  if (Supply->SharedWith != NULL) {
+    DEBUG ((DEBUG_INFO, ", shared with %a (stays on)", Supply->SharedWith));
   }
 
   DEBUG ((DEBUG_INFO, "\n"));

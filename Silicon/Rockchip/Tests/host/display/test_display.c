@@ -274,9 +274,11 @@ DumpPanel (const RK_PANEL_DESC *P, EFI_STATUS Status)
   printf (", \"reset\": [%d, %u, %u, %d], \"enable\": [%d, %u, %u, %d]",
     P->ResetGpio.Valid, P->ResetGpio.Bank, P->ResetGpio.Pin, P->ResetGpio.ActiveLow,
     P->EnableGpio.Valid, P->EnableGpio.Bank, P->EnableGpio.Pin, P->EnableGpio.ActiveLow);
-  printf (", \"power\": [%d, \"%s\", %u, %d], \"blpower\": [%d, \"%s\", %u, %d]",
+  printf (", \"power\": [%d, \"%s\", %u, %d, \"%s\"], \"blpower\": [%d, \"%s\", %u, %d, \"%s\"]",
     P->PowerSupply.Present, P->PowerSupply.Present ? P->PowerSupply.Name : "", P->PowerSupply.MinMicroVolts, P->PowerSupply.Fixed,
-    P->BacklightSupply.Present, P->BacklightSupply.Present ? P->BacklightSupply.Name : "", P->BacklightSupply.MinMicroVolts, P->BacklightSupply.Fixed);
+    P->PowerSupply.SharedWith ? P->PowerSupply.SharedWith : "",
+    P->BacklightSupply.Present, P->BacklightSupply.Present ? P->BacklightSupply.Name : "", P->BacklightSupply.MinMicroVolts, P->BacklightSupply.Fixed,
+    P->BacklightSupply.SharedWith ? P->BacklightSupply.SharedWith : "");
   printf (", \"bl\": [%d, \"0x%lx\", %u, %u, %u, %d, %u, %u, %d, %d, %u]}\n",
     B->Present, (unsigned long)B->PwmBase, B->PwmBlock, B->Channel, B->PeriodNs, B->Inverted, B->DefaultLevel, B->MaxLevel,
     B->Enable.Valid, B->Supply.Present, B->PinCount);
@@ -699,7 +701,8 @@ TestDtb (const char *Path, int Mode)
         }
       }
 
-      CHECK (Off);
+      // a rail another device uses stays on, like the kernel's refcount
+      CHECK_EQ (Off, P->PowerSupply.SharedWith == NULL);
     }
   }
 
