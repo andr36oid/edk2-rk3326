@@ -17,8 +17,6 @@
 #define DXE_HEAP_SIZE       0x05000000      // 80 MB
 #define OPTEE_BASE          0x08400000
 #define OPTEE_SIZE          0x01000000
-#define BOOTLOADER_FDT_BASE 0x01F00000      // U-Boot's fdt_addr_r
-#define BOOTLOADER_FDT_SIZE 0x00100000
 
 STATIC EFI_MEMORY_REGION_DESCRIPTOR  mMap[24];
 STATIC UINT8                         mCount;
@@ -72,7 +70,10 @@ BuildMap (
   )
 {
   RK_FRAMEBUFFER_INFO   Fb;
+  RK_BOOT_TAGS          Tags;
   EFI_PHYSICAL_ADDRESS  RamTop;
+  EFI_PHYSICAL_ADDRESS  TeeBase = OPTEE_BASE;
+  EFI_PHYSICAL_ADDRESS  TeeEnd  = OPTEE_BASE + OPTEE_SIZE;
   EFI_PHYSICAL_ADDRESS  FdBase    = FixedPcdGet64 (PcdFdBaseAddress);
   EFI_PHYSICAL_ADDRESS  FdEnd     = FdBase + FixedPcdGet32 (PcdFdSize);
   EFI_PHYSICAL_ADDRESS  StackBase = FixedPcdGet64 (PcdCPUCoresStackBase);
@@ -81,6 +82,15 @@ BuildMap (
   EFI_PHYSICAL_ADDRESS  FbStart   = 0;
   EFI_PHYSICAL_ADDRESS  FbEnd     = 0;
   BOOLEAN               HaveFb;
+
+  // OP-TEE where the miniloader says it put it, if that leaves our own
+  // regions alone; else the trust.img default.
+  if (!EFI_ERROR (RkGetBootTags (&Tags)) && (Tags.TeeSize != 0) && (Tags.TeeBase >= HeapEnd) &&
+      (Tags.TeeBase + Tags.TeeSize <= FALLBACK_DRAM_SIZE))
+  {
+    TeeBase = Tags.TeeBase;
+    TeeEnd  = Tags.TeeBase + Tags.TeeSize;
+  }
 
   HaveFb = !EFI_ERROR (RkGetActiveFramebuffer (&Fb));
   if (HaveFb) {
@@ -94,7 +104,7 @@ BuildMap (
   }
 
   // A framebuffer outside the upper RAM block (or past the end) is not ours to keep.
-  if (HaveFb && ((FbStart < OPTEE_BASE + OPTEE_SIZE) || (FbEnd > RamTop))) {
+  if (HaveFb && ((FbStart < TeeEnd) || (FbEnd > RamTop))) {
     HaveFb = FALSE;
   }
 
@@ -108,20 +118,20 @@ BuildMap (
   // The firmware log ring (this boot and the previous one).
   Add ("UEFI Log", RK_LOG_BASE, RK_LOG_SIZE, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK);
   // Where U-Boot put the FDT it passed in x0; DXE reads it.
-  Add ("Bootloader FDT", BOOTLOADER_FDT_BASE, BOOTLOADER_FDT_SIZE, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK);
+  Add ("Bootloader FDT", RK_BOOTLOADER_FDT_BASE, RK_BOOTLOADER_FDT_SIZE, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK);
   Add ("UEFI FD", FdBase, FdEnd - FdBase, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK);
   AddRam (FdEnd, StackBase);
   Add ("UEFI Stack", StackBase, StackEnd - StackBase, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK);
   Add ("DXE Heap", StackEnd, DXE_HEAP_SIZE, AddMem, SYS_MEM, SYS_MEM_CAP, Conv, WRITE_BACK);
-  AddRam (HeapEnd, OPTEE_BASE);
-  Add ("OP-TEE", OPTEE_BASE, OPTEE_SIZE, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK);
+  AddRam (HeapEnd, TeeBase);
+  Add ("OP-TEE", TeeBase, TeeEnd - TeeBase, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK);
 
   if (HaveFb) {
-    AddRam (OPTEE_BASE + OPTEE_SIZE, FbStart);
+    AddRam (TeeEnd, FbStart);
     Add ("Display Reserved", FbStart, FbEnd - FbStart, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH);
     AddRam (FbEnd, RamTop);
   } else {
-    AddRam (OPTEE_BASE + OPTEE_SIZE, RamTop);
+    AddRam (TeeEnd, RamTop);
   }
 
   // All of the SoC's registers (GIC, GRF, CRU, GPIO, VOP, MMC, ...).

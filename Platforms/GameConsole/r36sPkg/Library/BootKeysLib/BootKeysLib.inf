@@ -1,0 +1,22 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = BootKeysLibR36s
+  FILE_GUID                      = 8B3F0A56-2D49-4E17-9C84-F1A7E5D06B92
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = BootKeysLib
+
+[Sources]
+  BootKeysLib.c
+  BootKeysMap.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Andr36oidPkg/Andr36oidPkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  CruLib
+  GpioLib
+  RkSaradcLib

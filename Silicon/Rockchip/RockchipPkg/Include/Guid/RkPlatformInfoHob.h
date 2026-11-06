@@ -9,7 +9,7 @@
 
 #include <Library/RkPlatformInfoLib.h>
 
-#define RK_PLATFORM_INFO_HOB_VERSION  1
+#define RK_PLATFORM_INFO_HOB_VERSION  2
 
 typedef struct {
   UINT32                  Version;
@@ -19,6 +19,8 @@ typedef struct {
   UINT32                  BootloaderFdtSize;
   UINT32                  FramebufferValid;
   RK_FRAMEBUFFER_INFO     Framebuffer;
+  // Version 2 and later
+  RK_BOOT_TAGS            BootTags;          // from the miniloader, zeros if absent
 } RK_PLATFORM_INFO_HOB;
 
 extern EFI_GUID  gRkPlatformInfoHobGuid;

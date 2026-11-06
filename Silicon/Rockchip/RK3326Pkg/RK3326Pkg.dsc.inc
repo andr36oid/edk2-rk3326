@@ -35,8 +35,16 @@
   SerialPortLib|RockchipPkg/Library/RkSerialPortLib/RkSerialPortLib.inf
   RkLogLib|RockchipPkg/Library/RkSerialPortLib/RkSerialPortLib.inf
 
-  # Until the RK817 driver lands
-  RkPmicLib|RockchipPkg/Library/RkPmicLibNull/RkPmicLibNull.inf
+  # Board bring-up from C: I2C, the RK817 on it, SARADC
+  RkI2cLib|RK3326Pkg/Library/RkI2cLib/RkI2cLib.inf
+  RkPmicLib|RockchipPkg/Library/RkPmicLibRk817/RkPmicLibRk817.inf
+  RkSaradcLib|RK3326Pkg/Library/RkSaradcLib/RkSaradcLib.inf
+
+  # PSCI resets, power off through the RK817. The Hw class is what
+  # ResetSystemRuntimeDxe links (the build warns it is not a declared class of
+  # the instance, same as for the PSCI one it replaces).
+  HwResetSystemLib|RK3326Pkg/Library/ResetSystemLib/ResetSystemLib.inf
+  ResetSystemLib|RK3326Pkg/Library/ResetSystemLib/ResetSystemLib.inf
   GpioLib|RK3326Pkg/Library/GpioLib/GpioLib.inf
   CruLib|RK3326Pkg/Library/CruLib/CruLib.inf
   RkSdmmcPlatformLib|RK3326Pkg/Library/RkSdmmcPlatformLib/RkSdmmcPlatformLib.inf

@@ -13,6 +13,7 @@
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
 #include <Library/CruLib.h>
+#include "CruMath.h"
 
 
 UINTN
@@ -131,4 +132,64 @@ CruDeassertSoftReset (
   )
 {
     MmioWrite32 (CRU_SOFTRST_CON (Index), 1U << (Bit + 16));
+}
+
+//
+// Gate registers take a write mask in the upper half: writing only the mask
+// bit clears the gate (clock on).
+//
+STATIC
+VOID
+CruUngate (
+  IN UINTN   Reg,
+  IN UINT32  Bits
+  )
+{
+  MmioWrite32 (Reg, Bits << 16);
+}
+
+VOID
+CruEnableGpioClocks (
+  VOID
+  )
+{
+  CruUngate (CRU_CLKGATE_CON (15), (1U << 8) | (1U << 9) | (1U << 10));
+  CruUngate (PMUCRU_CLKGATE_CON (0), 1U << 6);
+}
+
+UINT32
+CruEnableI2cClock (
+  IN UINT8  Bus
+  )
+{
+  CONST CRU_I2C_CLOCK  *Clk;
+
+  ASSERT (Bus < 4);
+  Clk = CruI2cClock (Bus);
+
+  //
+  // Mux to the crystal (bit = 1) and divide by one (field = 0).
+  //
+  MmioWrite32 (
+    CRU_CLKSEL_CON (Clk->SelCon),
+    ((CRU_I2C_MUX_BIT | CRU_I2C_DIV_MASK) << Clk->SelShift << 16) |
+    (CRU_I2C_MUX_BIT << Clk->SelShift)
+    );
+  CruUngate (CRU_CLKGATE_CON (12), 1U << Bus);
+  CruUngate (CRU_CLKGATE_CON (14), 1U << (10 + Bus));
+
+  return CRU_XIN24M_HZ;
+}
+
+VOID
+CruEnableSaradcClock (
+  IN UINT32  Hz
+  )
+{
+  UINT32  Div;
+
+  Div = CruSaradcDivField (CRU_XIN24M_HZ, Hz);
+  MmioWrite32 (CRU_CLKSEL_CON (55), (0x7FFU << 16) | Div);
+  CruUngate (CRU_CLKGATE_CON (12), 1U << 10);
+  CruUngate (CRU_CLKGATE_CON (15), 1U << 3);
 }

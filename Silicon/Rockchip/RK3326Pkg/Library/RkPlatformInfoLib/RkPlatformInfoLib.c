@@ -5,6 +5,8 @@
 **/
 
 #include <Uefi.h>
+#include <Library/BaseLib.h>
+#include <Library/BaseMemoryLib.h>
 #include <Library/IoLib.h>
 #include <Library/RkPlatformInfoLib.h>
 #include <Soc/Rk3326.h>
@@ -140,4 +142,131 @@ RkGetActiveFramebuffer (
   }
 
   return EFI_NOT_FOUND;
+}
+
+//
+// Miniloader parameter tags: a list of { UINT32 SizeInWords; UINT32 Magic;
+// payload; UINT32 Hash } starting with a CORE tag, in the 8 KB below 2 MB.
+// The hash covers the tag up to (not including) itself.
+//
+#define ATAGS_BASE        0x001FE000
+#define ATAGS_SIZE        0x2000
+#define ATAG_CORE         0x54410001
+#define ATAG_NONE         0x00000000
+#define ATAG_BOOTDEV      0x54410051
+#define ATAG_TOS_MEM      0x54410053
+
+#pragma pack(1)
+typedef struct {
+  UINT32    Size;
+  UINT32    Magic;
+} ATAG_HEADER;
+
+typedef struct {
+  UINT32    Version;
+  UINT32    DevType;
+  UINT32    DevNum;
+} ATAG_BOOTDEV_DATA;
+
+// The 64-bit base sits at offset 12: read as two words, this can run with
+// the MMU off, where an unaligned 64-bit load faults.
+typedef struct {
+  UINT32    Version;
+  CHAR8     TeeName[8];
+  UINT32    TeeBaseLow;
+  UINT32    TeeBaseHigh;
+  UINT32    TeeSize;
+  UINT32    TeeFlags;
+} ATAG_TOS_MEM_DATA;
+#pragma pack()
+
+STATIC
+UINT32
+AtagHash (
+  IN CONST UINT8  *Data,
+  IN UINTN        Length
+  )
+{
+  UINT32  Hash = 0x47C6A7E6;
+  UINTN   Index;
+
+  for (Index = 0; Index < Length; Index++) {
+    Hash ^= (Hash << 5) + Data[Index] + (Hash >> 2);
+  }
+
+  return Hash;
+}
+
+STATIC
+CONST ATAG_HEADER *
+FindAtag (
+  IN UINT32  Magic,
+  IN UINTN   MinPayload
+  )
+{
+  CONST UINT8        *Pos = (CONST UINT8 *)(UINTN)ATAGS_BASE;
+  CONST UINT8        *End = Pos + ATAGS_SIZE;
+  CONST ATAG_HEADER  *Tag;
+  UINTN              Bytes;
+
+  Tag = (CONST ATAG_HEADER *)Pos;
+  if (Tag->Magic != ATAG_CORE) {
+    return NULL;
+  }
+
+  while (Pos + sizeof (ATAG_HEADER) <= End) {
+    Tag   = (CONST ATAG_HEADER *)Pos;
+    Bytes = (UINTN)Tag->Size * 4;
+    if ((Tag->Magic == ATAG_NONE) || (Bytes < sizeof (ATAG_HEADER) + 4) || (Bytes > (UINTN)(End - Pos))) {
+      return NULL;
+    }
+
+    if ((Tag->Magic == Magic) && (Bytes >= sizeof (ATAG_HEADER) + MinPayload + 4)) {
+      return (AtagHash (Pos, Bytes - 4) == *(CONST UINT32 *)(Pos + Bytes - 4)) ? Tag : NULL;
+    }
+
+    Pos += Bytes;
+  }
+
+  return NULL;
+}
+
+EFI_STATUS
+EFIAPI
+RkGetBootTags (
+  OUT RK_BOOT_TAGS  *Tags
+  )
+{
+  CONST ATAG_HEADER        *Tag;
+  CONST ATAG_BOOTDEV_DATA  *Dev;
+  CONST ATAG_TOS_MEM_DATA  *Tos;
+  UINT64                   TeeBase;
+
+  ZeroMem (Tags, sizeof (*Tags));
+  if (((CONST ATAG_HEADER *)(UINTN)ATAGS_BASE)->Magic != ATAG_CORE) {
+    return EFI_NOT_FOUND;
+  }
+
+  Tag = FindAtag (ATAG_BOOTDEV, sizeof (ATAG_BOOTDEV_DATA));
+  if (Tag != NULL) {
+    Dev               = (CONST ATAG_BOOTDEV_DATA *)(Tag + 1);
+    Tags->BootDevType = Dev->DevType;
+    Tags->BootDevNum  = Dev->DevNum;
+  }
+
+  Tag = FindAtag (ATAG_TOS_MEM, sizeof (ATAG_TOS_MEM_DATA));
+  if (Tag != NULL) {
+    Tos     = (CONST ATAG_TOS_MEM_DATA *)(Tag + 1);
+    TeeBase = LShiftU64 (Tos->TeeBaseHigh, 32) | Tos->TeeBaseLow;
+    // Only take a region that looks like OP-TEE's: below 4 GB, page
+    // aligned, 1..64 MB.
+    if ((TeeBase != 0) && (TeeBase < SIZE_4GB) && ((TeeBase & EFI_PAGE_MASK) == 0) &&
+        (Tos->TeeSize >= SIZE_1MB) && (Tos->TeeSize <= SIZE_64MB))
+    {
+      Tags->TeeBase = TeeBase;
+      Tags->TeeSize = Tos->TeeSize;
+    }
+  }
+
+  return EFI_SUCCESS;
 }

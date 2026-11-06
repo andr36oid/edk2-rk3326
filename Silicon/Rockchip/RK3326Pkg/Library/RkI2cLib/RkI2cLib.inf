@@ -1,0 +1,23 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = RkI2cLib
+  FILE_GUID                      = 9C2F6B14-3E7A-4D58-A1B0-5F8D2C74E391
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = RkI2cLib
+
+[Sources]
+  RkI2cLib.c
+  RkI2cMath.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  IoLib
+  TimerLib
+  CruLib
+  GpioLib

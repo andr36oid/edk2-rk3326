@@ -18,6 +18,8 @@
   RkSdmmcPlatformLib|Include/Library/RkSdmmcPlatformLib.h
   RkPlatformInfoLib|Include/Library/RkPlatformInfoLib.h
   RkPmicLib|Include/Library/RkPmicLib.h
+  RkI2cLib|Include/Library/RkI2cLib.h
+  RkSaradcLib|Include/Library/RkSaradcLib.h
   RkLogLib|Include/Library/RkLogLib.h
 
 [Guids.common]

@@ -188,12 +188,16 @@ def compile_boot_shim (boot_shim_config: dict, fd_config: dict) -> bool:
     # Get Kernel Header Flag
     requires_kernel_header = boot_shim_config.get ("requires_kernel_header", False)
 
+    # Get Kernel Header Flags (bit 3: the loader may leave the Image where it is)
+    kernel_flags = hex (boot_shim_config.get ("kernel_flags", 0))
+
     # Set Compile Command
     cmd = [
         "make",
         f"REQUIRES_KERNEL_HEADER={int (requires_kernel_header)}",
         f"FD_BASE={fd_base}",
-        f"FD_SIZE={fd_size}"
+        f"FD_SIZE={fd_size}",
+        f"KERNEL_FLAGS={kernel_flags}"
     ]
 
     # Compile Boot Shim

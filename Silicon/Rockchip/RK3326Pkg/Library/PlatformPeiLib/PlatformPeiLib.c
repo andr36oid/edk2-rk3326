@@ -24,12 +24,21 @@ FdtSize (
   CONST UINT32  *Header = (CONST UINT32 *)(UINTN)Fdt;
   UINT32        Size;
 
-  if ((Fdt == 0) || ((Fdt & 7) != 0) || (SwapBytes32 (Header[0]) != FDT_MAGIC)) {
+  // x0 is only an FDT when U-Boot's booti started us. Started by BL31 (as
+  // uboot.img) it is whatever BL31 left there: don't read through it unless
+  // it points into the window the memory map protects.
+  if ((Fdt < RK_BOOTLOADER_FDT_BASE) || (Fdt >= RK_BOOTLOADER_FDT_BASE + RK_BOOTLOADER_FDT_SIZE) ||
+      ((Fdt & 7) != 0) || (SwapBytes32 (Header[0]) != FDT_MAGIC))
+  {
     return 0;
   }
 
   Size = SwapBytes32 (Header[1]);
-  return (Size >= 64 && Size <= SIZE_2MB) ? Size : 0;
+  if ((Size < 64) || (Size > RK_BOOTLOADER_FDT_BASE + RK_BOOTLOADER_FDT_SIZE - Fdt)) {
+    return 0;
+  }
+
+  return Size;
 }
 
 EFI_STATUS
@@ -52,6 +61,9 @@ PlatformPeim (
   }
 
   Info.FramebufferValid = !EFI_ERROR (RkGetActiveFramebuffer (&Info.Framebuffer));
+  if (EFI_ERROR (RkGetBootTags (&Info.BootTags))) {
+    DEBUG ((DEBUG_WARN, "RK3326: no miniloader tags at 0x1FE000\n"));
+  }
 
   DEBUG ((
     DEBUG_INFO,
@@ -63,6 +75,14 @@ PlatformPeim (
     Info.Framebuffer.Width,
     Info.Framebuffer.Height,
     Info.Framebuffer.BitsPerPixel
+    ));
+  DEBUG ((
+    DEBUG_INFO,
+    "RK3326: boot device 0x%x/%u, OP-TEE 0x%lx +0x%x\n",
+    Info.BootTags.BootDevType,
+    Info.BootTags.BootDevNum,
+    Info.BootTags.TeeBase,
+    Info.BootTags.TeeSize
     ));
 
   BuildGuidDataHob (&gRkPlatformInfoHobGuid, &Info, sizeof (Info));
