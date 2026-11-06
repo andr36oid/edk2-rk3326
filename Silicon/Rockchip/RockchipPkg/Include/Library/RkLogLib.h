@@ -48,6 +48,22 @@ RkLogScreen (
   );
 
 /**
+  Draw the log on a framebuffer the display driver brought up (none at SEC on
+  a start without U-Boot, or a new one after a re-init). The newest part of
+  the log is drawn again so what happened before the panel came up shows.
+  Only 32 and 16 bpp are drawn; anything else turns the screen log off.
+**/
+VOID
+EFIAPI
+RkLogSetFramebuffer (
+  IN UINT64  Base,
+  IN UINT32  Width,
+  IN UINT32  Height,
+  IN UINT32  Stride,
+  IN UINT32  BitsPerPixel
+  );
+
+/**
   Mark the log as handed to Linux (TRUE) right before the kernel starts, or
   take the mark back (FALSE) if starting it failed. Linux reuses this RAM, so
   the next start keeps no previous copy of a handed-off log: the previous log

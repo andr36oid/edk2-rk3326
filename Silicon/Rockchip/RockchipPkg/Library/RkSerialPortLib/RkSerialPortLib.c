@@ -280,6 +280,61 @@ RkLogScreen (
 
 VOID
 EFIAPI
+RkLogSetFramebuffer (
+  IN UINT64  Base,
+  IN UINT32  Width,
+  IN UINT32  Height,
+  IN UINT32  Stride,
+  IN UINT32  BitsPerPixel
+  )
+{
+  LOG_HEADER  *H = CURRENT;
+  UINT64      Size;
+  UINT64      Start;
+  UINT64      Index;
+
+  if (!HeaderValid (H)) {
+    return;
+  }
+
+  if (H->FbValid && (H->FbBase == Base) && (H->FbWidth == Width) && (H->FbHeight == Height)) {
+    return;   // already drawing there
+  }
+
+  H->FbValid = 0;
+  if (((BitsPerPixel != 32) && (BitsPerPixel != 16)) || (Width < GLYPH_W) || (Height < GLYPH_H) ||
+      (Stride < Width * (BitsPerPixel / 8)))
+  {
+    return;
+  }
+
+  H->FbBase          = Base;
+  H->FbWidth         = Width;
+  H->FbHeight        = Height;
+  H->FbStride        = Stride;
+  H->FbBytesPerPixel = BitsPerPixel / 8;
+  H->Column          = 0;
+  H->Row             = 0;
+  H->FbValid         = 1;
+
+  // About one screenful of the newest bytes, from the start of a line.
+  Size  = MIN (H->Written, (UINT64)H->DataSize);
+  Size  = MIN (Size, (UINT64)(Width / GLYPH_W) * (Height / GLYPH_H));
+  Start = H->Written - Size;
+  for (Index = Start; Index < H->Written; Index++) {
+    if (DATA (H)[Index % H->DataSize] == '\n') {
+      Start = Index + 1;
+      break;
+    }
+  }
+
+  for (Index = Start; Index < H->Written; Index++) {
+    ScreenPutChar (H, DATA (H)[Index % H->DataSize]);
+  }
+}
+
+VOID
+EFIAPI
 RkLogHandoff (
   IN BOOLEAN  HandedOff
   )

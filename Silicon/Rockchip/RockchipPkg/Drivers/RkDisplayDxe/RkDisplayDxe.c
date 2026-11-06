@@ -29,6 +29,7 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PcdLib.h>
 #include <Library/RkGopLib.h>
+#include <Library/RkLogLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include "RkDisplay.h"
 
@@ -230,6 +231,8 @@ InstallGop (
   IN CONST RK_FRAMEBUFFER_INFO  *Fb
   )
 {
+  // The on-screen log follows the panel (a no-op when it is U-Boot's buffer).
+  RkLogSetFramebuffer (Fb->Base, Fb->Width, Fb->Height, Fb->Stride, Fb->BitsPerPixel);
   if (!EFI_ERROR (RkGopInstall (Fb, NULL))) {
     mGopInstalled = TRUE;
     CopyMem (&mGopFb, Fb, sizeof (mGopFb));

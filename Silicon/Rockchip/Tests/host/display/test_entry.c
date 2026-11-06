@@ -43,9 +43,19 @@ static RK_SCREEN_FDT_PROTOCOL  *mProto;   // what LocateProtocol hands out next
 VOID * EFIAPI GetFirstGuidHob (IN CONST EFI_GUID *Guid) { return mHaveHob ? &mHob : NULL; }
 VOID * EFIAPI AllocateZeroPool (IN UINTN Size) { return calloc (1, Size); }
 
+static UINT64  mLogFbBase;
+
+VOID EFIAPI
+RkLogSetFramebuffer (IN UINT64 Base, IN UINT32 Width, IN UINT32 Height, IN UINT32 Stride, IN UINT32 BitsPerPixel)
+{
+  mLogFbBase = Base;
+}
+
 EFI_STATUS EFIAPI
 RkGopInstall (IN CONST RK_FRAMEBUFFER_INFO *Fb, OUT EFI_HANDLE *Handle OPTIONAL)
 {
+  // The on-screen log must already draw where the GOP points.
+  CHECK_EQ (mLogFbBase, Fb->Base);
   if (mGopCalls++ > 0) {
     return EFI_ALREADY_STARTED;
   }
@@ -202,6 +212,7 @@ Boot (const void *BootFdt, const RK_FRAMEBUFFER_INFO *Fb, unsigned Mode)
   mNotifyEvent = NULL; mNotifyRegistration = NULL;
   mGopCalls = 0; mPagesCalls = 0; mNotifyFn = NULL; mProto = NULL;
   memset (&mGop, 0, sizeof (mGop));
+  mLogFbBase = 0;
 
   memset (&mHob, 0, sizeof (mHob));
   mHaveHob                    = TRUE;

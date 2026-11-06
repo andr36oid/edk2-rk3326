@@ -64,6 +64,19 @@ RkLogStart (
 
 VOID
 EFIAPI
+RkLogSetFramebuffer (
+  IN UINT64  Base,
+  IN UINT32  Width,
+  IN UINT32  Height,
+  IN UINT32  Stride,
+  IN UINT32  BitsPerPixel
+  )
+{
+  // No screen log on QEMU: the console is the serial port.
+}
+
+VOID
+EFIAPI
 RkLogHandoff (
   IN BOOLEAN  HandedOff
   )

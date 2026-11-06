@@ -41,6 +41,7 @@
   MemoryAllocationLib
   PcdLib
   RkGopLib
+  RkLogLib
   RkPmicLib
   TimerLib
   UefiBootServicesTableLib
