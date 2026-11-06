@@ -1,0 +1,59 @@
+#
+# Display bring-up for the PX30 VOPB -> MIPI DSI -> panel path, with GOP.
+# The hardware files are ported from U-Boot's Rockchip DRM driver.
+#
+# SPDX-License-Identifier: GPL-2.0+
+#
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = RkDisplayDxe
+  FILE_GUID                      = C9DFA4BA-B080-4240-92B9-7D6D4F3411FE
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = RkDisplayDxeEntryPoint
+
+[Sources]
+  RkDisplay.h
+  RkDisplayDxe.c
+  Display.c
+  DisplayFdt.c
+  DisplayMath.c
+  Vop.c
+  Dsi.c
+  InnoPhy.c
+  Panel.c
+  Backlight.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  CruLib
+  DebugLib
+  FdtLib
+  GpioLib
+  HobLib
+  IoLib
+  MemoryAllocationLib
+  PcdLib
+  RkGopLib
+  RkPmicLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gRkScreenFdtProtocolGuid
+
+[Guids]
+  gRkPlatformInfoHobGuid
+
+[FixedPcd]
+  gRockchipPkgTokenSpaceGuid.PcdRkDisplayMode
+
+[Depex]
+  TRUE

@@ -43,7 +43,19 @@
   gRockchipPkgTokenSpaceGuid.PcdRkLogUart|FALSE|BOOLEAN|0x40000041
 
 #
-# Display (RkGopLib)
+# Display (RkDisplayDxe, RkGopLib)
 #
 [LibraryClasses]
   RkGopLib|Include/Library/RkGopLib.h
+
+[Protocols]
+  # The device tree the panel is brought up from (Protocol/RkScreenFdt.h)
+  gRkScreenFdtProtocolGuid          = { 0x15e48db0, 0xa55a, 0x4e2f, { 0x83, 0xd3, 0x17, 0xbb, 0x5c, 0x9f, 0x91, 0x75 } }
+
+[PcdsFixedAtBuild.common]
+  # What RkDisplayDxe does with a screen U-Boot already lit:
+  #   0 = adopt it (GOP on U-Boot's framebuffer, no register writes)
+  #   1 = shut it down and bring the panel up again from the screen FDT
+  # A dark screen is always brought up from the screen FDT. Bootloader
+  # bootargs andr36oid.display=adopt|reinit override this at run time.
+  gRockchipPkgTokenSpaceGuid.PcdRkDisplayMode|0|UINT8|0x40000050
