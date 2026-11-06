@@ -50,7 +50,11 @@
   Andr36oidPkg/Library/PowerCheckLibNull/PowerCheckLibNull.inf
 
   # Clocks, IO domains, pins and GPIOs, first thing in DXE
-  r36sPkg/Drivers/BoardInitDxe/BoardInitDxe.inf
+  r36sPkg/Drivers/BoardInitDxe/BoardInitDxe.inf {
+    <PcdsFixedAtBuild>
+      # Its steps are DEBUG_INFO lines (see RockchipPkg.dsc.inc)
+      gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x8007EE4F
+  }
 
   # d-pad and A/B as text input
   SiliciumPkg/Drivers/KeypadDxe/KeypadDxe.inf

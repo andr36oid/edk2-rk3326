@@ -67,7 +67,7 @@ PlatformPeim (
   }
 
   DEBUG ((
-    DEBUG_INFO,
+    DEBUG_INIT,
     "RK3326: DRAM %lu MB, bootloader FDT 0x%lx (%u bytes), fb 0x%lx %ux%u %ubpp\n",
     Info.DramSize >> 20,
     Info.BootloaderFdt,
@@ -78,7 +78,7 @@ PlatformPeim (
     Info.Framebuffer.BitsPerPixel
     ));
   DEBUG ((
-    DEBUG_INFO,
+    DEBUG_INIT,
     "RK3326: boot device 0x%x/%u, OP-TEE 0x%lx +0x%x\n",
     Info.BootTags.BootDevType,
     Info.BootTags.BootDevNum,
@@ -92,7 +92,7 @@ PlatformPeim (
     UINT64  El;
 
     __asm__ volatile ("mrs %0, CurrentEL" : "=r" (El));
-    DEBUG ((DEBUG_INFO, "RK3326: running at EL%u, CNTFRQ %u Hz\n", (UINT32)((El >> 2) & 3), (UINT32)ArmReadCntFrq ()));
+    DEBUG ((DEBUG_INIT, "RK3326: running at EL%u, CNTFRQ %u Hz\n", (UINT32)((El >> 2) & 3), (UINT32)ArmReadCntFrq ()));
     if (ArmReadCntFrq () != 24000000) {
       DEBUG ((DEBUG_WARN, "RK3326: CNTFRQ is not 24 MHz, Linux will use it as it is\n"));
     }

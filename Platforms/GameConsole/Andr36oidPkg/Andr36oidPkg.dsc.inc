@@ -16,7 +16,12 @@
   DeviceBootManagerLib|Andr36oidPkg/Library/DeviceBootManagerLib/DeviceBootManagerLib.inf
 
 [Components]
-  Andr36oidPkg/Application/Andr36oidBoot/Andr36oidBoot.inf
+  Andr36oidPkg/Application/Andr36oidBoot/Andr36oidBoot.inf {
+    <PcdsFixedAtBuild>
+      # The libraries it links (power check, PMIC, Linux handoff) log at
+      # DEBUG_INFO, which SiliciumPkg's DEBUG mask drops; RELEASE is unaffected
+      gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x8007EE4F
+  }
 
 #
 # RELEASE builds keep errors, warnings and DEBUG_INIT lines (the RK log lines)
