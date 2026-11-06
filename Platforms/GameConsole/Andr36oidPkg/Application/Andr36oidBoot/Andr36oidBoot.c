@@ -25,6 +25,7 @@
 #include <Library/LinuxBootLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PcdLib.h>
+#include <Library/PowerCheckLib.h>
 #include <Library/PrintLib.h>
 #include <Library/RkLogLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -380,6 +381,7 @@ Andr36oidBootMain (
 
   ZeroMem (&Vol, sizeof (Vol));
   gBS->SetWatchdogTimer (0, 0, 0, NULL);
+  PowerCheck ();    // low battery or charger in: may shut down or hold here
   Say ("andr36oid boot\n");
 
   if (EFI_ERROR (BootPlatformGetInfo (&Pi))) {

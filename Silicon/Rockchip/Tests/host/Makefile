@@ -21,14 +21,14 @@ CFLAGS = -std=gnu11 -O1 -g -fshort-wchar -funsigned-char -fno-strict-aliasing -W
          -I$(MU)/MdePkg/Include -I$(MU)/MdePkg/Include/X64 \
          -I$(RK)/RockchipPkg/Include -I$(AND)/Include -I$(SIL)/Include \
          -I$(RK)/RK3326Pkg/Library/GpioLib -I$(RK)/RK3326Pkg/Library/CruLib \
-         -I$(RK)/RK3326Pkg/Library/RkI2cLib -I$(RK)/RK3326Pkg/Library/RkClockInitLib -I$(R36S)/Drivers/BoardInitDxe -I$(RK)/RockchipPkg/Library/RkPmicLibRk817 \
+         -I$(RK)/RK3326Pkg/Library/RkI2cLib -I$(RK)/RK3326Pkg/Library/RkClockInitLib -I$(AND)/Library/PowerCheckLib -I$(R36S)/Drivers/BoardInitDxe -I$(RK)/RockchipPkg/Library/RkPmicLibRk817 \
          -I$(R36S)/Library/BootKeysLib -I$(R36S)/Library/KeypadDeviceLib \
          -Imock -I$(RK)/RockchipPkg/Drivers/DesignWare/DwMmcHcDxe
 
-TESTS = test_math test_i2c test_cru test_dwmmc test_pmic test_keys dump_keys test_clock test_board dump_clk
+TESTS = test_math test_i2c test_cru test_dwmmc test_pmic test_keys dump_keys test_clock test_board dump_clk test_power
 
 all: $(TESTS)
-	@for t in test_math test_i2c test_cru test_dwmmc test_clock test_board; do echo "== $$t"; ./$$t || exit 1; done
+	@for t in test_math test_i2c test_cru test_dwmmc test_clock test_board test_power; do echo "== $$t"; ./$$t || exit 1; done
 	@for a in 166 514 300 fail; do echo "== test_keys $$a"; ./test_keys $$a || exit 1; done
 	@for m in --bad-id --no-ack --init-fail; do echo "== test_pmic $$m"; ./test_pmic $$m || exit 1; done
 	@echo "== test_pmic with $(DTB)"; if [ -f $(DTB) ]; then ./test_pmic $(DTB) || exit 1; else echo "(no DTB, skipped)"; fi
@@ -77,3 +77,6 @@ test_board: test_board.c $(COMMON) $(R36S)/Drivers/BoardInitDxe/BoardInit.c $(RK
 
 dump_clk: dump_clk.c
 	$(CC) $(CFLAGS) -o $@ $<
+
+test_power: test_power.c $(COMMON)
+	$(CC) $(CFLAGS) -o $@ $^
