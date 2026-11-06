@@ -496,6 +496,8 @@ Andr36oidBootMain (
   BOOLEAN             FromUsb   = FALSE;
   BOOT_DEVICE_KIND    Kind;
   CHAR8               Message[160];
+  BOOLEAN             PowerChecked;
+  EFI_STATUS          PiStatus;
 
   Plan = AllocateZeroPool (sizeof (*Plan));
   if (Plan == NULL) {
@@ -503,11 +505,21 @@ Andr36oidBootMain (
   }
 
   ZeroMem (&Vol, sizeof (Vol));
+  ZeroMem (&Pi, sizeof (Pi));
   gBS->SetWatchdogTimer (0, 0, 0, NULL);
-  PowerCheck ();    // low battery or charger in: may shut down or hold here
-  Say ("andr36oid boot\n");
+  // Low battery or charger in: may shut down or hold here. After U-Boot the
+  // screen is up already; without it the panel only comes up from BOOT's
+  // screen DTB, so the check waits for that (U-Boot's order too: display,
+  // then charge_animation).
+  PiStatus     = BootPlatformGetInfo (&Pi);
+  PowerChecked = FALSE;
+  if (EFI_ERROR (PiStatus) || (Pi.BootloaderFdt != 0)) {
+    PowerCheck ();
+    PowerChecked = TRUE;
+  }
 
-  if (EFI_ERROR (BootPlatformGetInfo (&Pi))) {
+  Say ("andr36oid boot\n");
+  if (EFI_ERROR (PiStatus)) {
     Say ("boot: no platform info\n");
   }
 
@@ -572,6 +584,10 @@ Andr36oidBootMain (
   // The panel (no U-Boot: from BOOT's screen DTB) and the console on it,
   // before anything the menu draws; the USB port's power.
   BootScreenSetup (Vol.Root, Facts.HwRev);
+  if (!PowerChecked) {
+    PowerCheck ();
+  }
+
   if (!FromUsb) {
     UsbPower (&Vol, &Pi);     // a stick that is in has power already
   }
