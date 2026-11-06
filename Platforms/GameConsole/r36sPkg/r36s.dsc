@@ -53,3 +53,9 @@
   # d-pad and A/B as text input
   SiliciumPkg/Drivers/KeypadDxe/KeypadDxe.inf
   SiliciumPkg/Drivers/KeypadDeviceDxe/KeypadDeviceDxe.inf
+
+# andr36oid boot app, Linux handoff, boot order (last, so its mappings win)
+[LibraryClasses]
+  BootPlatformLib|r36sPkg/Library/BootPlatformLib/BootPlatformLib.inf
+
+!include Andr36oidPkg/Andr36oidPkg.dsc.inc

@@ -1,0 +1,34 @@
+##
+#  Direct Linux handoff (booti contract): arm64 Image placement, FDT fixups,
+#  ExitBootServices, caches/MMU off, jump.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = LinuxBootLib
+  FILE_GUID                      = 4C1B7E52-93A6-4D0F-B8E2-6A5D3C9F1E04
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = LinuxBootLib|UEFI_APPLICATION DXE_DRIVER
+
+[Sources]
+  LinuxImage.c
+  LinuxFdt.c
+  LinuxBoot.c
+
+[Sources.AARCH64]
+  AArch64/LinuxJump.S
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Andr36oidPkg/Andr36oidPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  CacheMaintenanceLib
+  DebugLib
+  FdtLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib

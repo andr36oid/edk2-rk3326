@@ -1,0 +1,32 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = MemDiskDxe
+  FILE_GUID                      = E2A5C918-6B07-4F3D-8D41-7C9B0E2F5A16
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = MemDiskDxeInitialize
+
+[Sources]
+  MemDiskDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  qemuvirtPkg/qemuvirt.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  PcdLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiBlockIoProtocolGuid
+  gEfiDevicePathProtocolGuid
+
+[FixedPcd]
+  gQemuVirtTokenSpaceGuid.PcdMemDiskBase
+  gQemuVirtTokenSpaceGuid.PcdMemDiskSize
+
+[Depex]
+  TRUE

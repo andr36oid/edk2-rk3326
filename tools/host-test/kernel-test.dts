@@ -1,0 +1,51 @@
+/dts-v1/;
+/* A cut-down andr36oid kernel DTB: what the handoff touches. */
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	model = "host test";
+
+	chosen {
+		bootargs = "";
+	};
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0 0 0 0x10000000>;
+	};
+
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 0 0x1000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		drm-logo@00000000 {
+			compatible = "rockchip,drm-logo";
+			reg = <0 0 0 0>;
+		};
+
+		ramoops@110000 {
+			compatible = "ramoops";
+			reg = <0 0x110000 0 0xf0000>;
+		};
+	};
+
+	display-subsystem {
+		compatible = "rockchip,display-subsystem";
+		logo-memory-region = <&{/reserved-memory/drm-logo@00000000}>;
+
+		route {
+			route-dsi {
+				status = "okay";
+			};
+			route-lvds {
+				status = "disabled";
+			};
+		};
+	};
+};

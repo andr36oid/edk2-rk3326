@@ -1,0 +1,16 @@
+#
+# QEMU "virt" test device for the andr36oid boot app (tools/qemu-test.sh).
+# qemu-system-aarch64 -kernel loads Mu-qemuvirt.bin as a raw image at
+# RAM + 0x80000 and enters it like a kernel (x0 = its FDT), the way U-Boot's
+# booti enters Mu-r36s.bin; BootShim moves the FD to its base.
+#
+
+[uefi_fd]
+base = 0x42000000
+size = 0x00300000
+
+[boot_shim]
+requires_kernel_header = false
+
+[payload]
+type = "raw"

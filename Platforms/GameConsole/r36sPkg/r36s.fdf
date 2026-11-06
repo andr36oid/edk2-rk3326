@@ -91,6 +91,9 @@ READ_LOCK_STATUS   = TRUE
 
   !include RockchipPkg/Extra.fdf.inc
 
+  # andr36oid boot app (first in BootOrder)
+  !include Andr36oidPkg/Andr36oid.fdf.inc
+
 [FV.FVMAIN_COMPACT]
 FvAlignment        = 8
 ERASE_POLARITY     = 1

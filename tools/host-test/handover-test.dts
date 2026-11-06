@@ -1,0 +1,47 @@
+/dts-v1/;
+/* What U-Boot's booti leaves in the FDT it passes on: logo region filled in,
+   logo and video properties on the route that drove the screen. */
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	chosen {
+		bootargs = "andr36oid.hwrev=rg351mp andr36oid.serialno=abc123 andr36oid.ram_mb=1024 andr36oid.bootpart=1:1";
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0 0x200000 0 0x3e000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		drm-logo@00000000 {
+			compatible = "rockchip,drm-logo";
+			reg = <0 0x3dc00000 0 0x700000>;
+		};
+	};
+
+	display-subsystem {
+		route {
+			route-dsi {
+				status = "okay";
+				logo,offset = <0>;
+				logo,width = <640>;
+				logo,height = <480>;
+				logo,bpp = <24>;
+				logo,ymirror = <0>;
+				video,hdisplay = <640>;
+				video,vdisplay = <480>;
+				video,vrefresh = <60>;
+				overscan,left_margin = <100>;
+			};
+			route-lvds {
+				status = "disabled";
+			};
+		};
+	};
+};
