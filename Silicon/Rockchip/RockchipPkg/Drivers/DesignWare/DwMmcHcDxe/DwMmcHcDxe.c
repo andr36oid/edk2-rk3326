@@ -953,6 +953,10 @@ DwMmcPassThruPassThru (
     return EFI_INVALID_PARAMETER;
   }
 
+  if (Slot >= DW_MMC_HC_MAX_SLOT) {
+    return EFI_INVALID_PARAMETER;
+  }
+
   Private = DW_MMC_HC_PRIVATE_FROM_THIS (This);
 
   if (!Private->Slot[Slot].Enable) {
@@ -1282,6 +1286,10 @@ DwMmcPassThruResetDevice (
   EFI_TPL                 OldTpl;
 
   if (This == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Slot >= DW_MMC_HC_MAX_SLOT) {
     return EFI_INVALID_PARAMETER;
   }
 
