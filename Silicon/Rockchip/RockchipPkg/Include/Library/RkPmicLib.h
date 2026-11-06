@@ -15,7 +15,7 @@
 typedef struct {
   BOOLEAN  ChargerPresent;    // DC/USB power in
   BOOLEAN  Charging;
-  BOOLEAN  PowerKeyPressed;
+  BOOLEAN  PowerKeyPressed;   // latched press/release events, see RkPmicGetPowerStatus
   UINT32   BatteryMicroVolts; // 0 if unknown
 } RK_POWER_STATUS;
 
@@ -38,6 +38,18 @@ RkPmicSetRegulator (
   IN CONST VOID  *Fdt,
   IN INT32       RegulatorNode,
   IN BOOLEAN     Enable
+  );
+
+/**
+  Switch on every rail the FDT marks regulator-boot-on or regulator-always-on
+  (what U-Boot's regulators_enable_boot_on does). Fixed-voltage rails also get
+  their voltage written; ranged rails (CPU, logic) are only enabled.
+  Added in M2, the other functions are unchanged.
+**/
+EFI_STATUS
+EFIAPI
+RkPmicEnableBootOn (
+  IN CONST VOID  *Fdt
   );
 
 EFI_STATUS

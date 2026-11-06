@@ -1,0 +1,20 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = RkSaradcLib
+  FILE_GUID                      = 4A7D1E92-6B35-4C08-8F1A-D3E6B9250C47
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = RkSaradcLib
+
+[Sources]
+  RkSaradcLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  IoLib
+  TimerLib
+  CruLib

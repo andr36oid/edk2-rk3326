@@ -29,6 +29,15 @@ RkPmicSetRegulator (
 
 EFI_STATUS
 EFIAPI
+RkPmicEnableBootOn (
+  IN CONST VOID  *Fdt
+  )
+{
+  return EFI_UNSUPPORTED;
+}
+
+EFI_STATUS
+EFIAPI
 RkPmicGetPowerStatus (
   OUT RK_POWER_STATUS  *Status
   )

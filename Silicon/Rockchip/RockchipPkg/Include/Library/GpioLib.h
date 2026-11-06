@@ -48,6 +48,10 @@
 #define SYS_GRF             0xFF140000UL
 #define GPIO_BASE(n)        ((n) == 0 ? GPIO_BANK0 : (GPIO_BANK1 + ((n) - 1) * 0x10000))
 
+//
+// PX30 notes: GPIO0 is the PMU bank (GPIO0_A0 is Group 0, Pin GPIO_PIN_PA0).
+// Pin n of GPIOx_Yz is GPIO_PIN_Yz + n.
+//
 
 typedef enum {
   GPIO_PIN_INPUT  = 0,
@@ -101,10 +105,33 @@ GpioPinWrite (
   IN BOOLEAN Value
   );
 
+/**
+  TRUE when the pad reads high. Works whatever the pin function is.
+**/
+BOOLEAN
+GpioPinGetLevel (
+  IN UINT8 Group,
+  IN UINT8 Pin
+  );
+
+/**
+  Inverted: TRUE when the pad reads LOW. Only here for RkSdmmcPlatformLib,
+  which expects it; use GpioPinGetLevel.
+**/
 BOOLEAN
 GpioPinRead (
   IN UINT8 Group,
   IN UINT8 Pin
+  );
+
+/**
+  Drive strength as the PX30 level 0..3 (2, 4, 8, 12 mA).
+**/
+VOID
+GpioPinSetDriveLevel (
+  IN UINT8 Group,
+  IN UINT8 Pin,
+  IN UINT8 Level
   );
 
 VOID
