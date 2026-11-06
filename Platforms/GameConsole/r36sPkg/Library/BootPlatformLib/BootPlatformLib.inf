@@ -19,6 +19,8 @@
   BaseMemoryLib
   DevicePathLib
   HobLib
+  IoLib
+  TimerLib
 
 [Guids]
   gRkPlatformInfoHobGuid

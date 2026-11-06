@@ -115,6 +115,13 @@ BASE="fw_devlink=permissive rootwait consoleblank=0 swiotlb=1 coherent_pool=1m f
 CONSOLE="console=null loglevel=4 printk.time=1 vt.global_cursor_default=0 fiq_debugger.disable=1"
 FACTS="andr36oid.hwrev=rg351mp andr36oid.serialno=QEMU0001 andr36oid.ram_mb=1024 andr36oid.bootpart=1:1"
 K=$OUT/Image:Image
+# The serial number U-Boot would make from the QEMU device's fixed CPU ID
+# (CRC32 without complement, zlib's crc32 with the inversions undone).
+SERIAL=$(python3 -c '
+import zlib
+raw = lambda c, b: ~zlib.crc32(b, ~c & 0xffffffff) & 0xffffffff
+i = b"QEMU virt cpu id"
+lo = raw(0, i[1::2]); print("%x" % (raw(lo, i[0::2]) << 32 | lo))')
 echo "== DTB: $DTB"
 RD="$OUT/ramdisk.uimg:ramdisk.uimg $OUT/ramdisk-stock.uimg:ramdisk-stock.uimg $OUT/ramdisk-recovery.uimg:ramdisk-recovery.uimg"
 
@@ -138,17 +145,18 @@ if want android; then
 fi
 
 # 2. EL1 (PSCI over HVC), recovery.txt, no facts from U-Boot (no -append):
-#    the board's own (QEMU: no buttons, v00, no serial number).
+#    the board's own (QEMU: no buttons, v00, serial number from a fixed CPU ID).
 if want recovery; then
     printf 'x\n' > "$OUT/recovery.txt"
     mkboot "$OUT/recovery.img" $K $RD "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" "$OUT/kt.txt:kernel-tweaks.txt" "$OUT/recovery.txt:recovery.txt" || exit 2
     run recovery "virt,gic-version=2" ""
     has recovery "TESTKERNEL: started at EL1"
-    line recovery "TESTKERNEL: bootargs=$BASE androidboot.revision=v00 androidboot.serialno= androidboot.boot_devices=ff370000.dwmmc $CONSOLE dw_mmc_rockchip.builtin_emmc=1"
+    line recovery "TESTKERNEL: bootargs=$BASE androidboot.revision=v00 androidboot.serialno=$SERIAL androidboot.boot_devices=ff370000.dwmmc $CONSOLE dw_mmc_rockchip.builtin_emmc=1"
     has recovery "TESTKERNEL: initrd name=recovery"
     count recovery "TESTKERNEL: RESULT PASS" 1
     hasnt recovery "TESTKERNEL: FAIL"
     onboot recovery uefi-log.txt "no facts from U-Boot"
+    onboot recovery uefi-log.txt "boot: serial number $SERIAL from the CPU ID"
 fi
 
 # 3. A failed start (no ramdisk.uimg) opens the menu; Save log, then Recovery.

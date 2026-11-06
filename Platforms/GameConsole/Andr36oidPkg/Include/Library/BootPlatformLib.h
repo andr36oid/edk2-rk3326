@@ -43,6 +43,16 @@ BootPlatformGetInfo (
   );
 
 /**
+  The SoC's unique ID, 16 bytes (BootPolicySerialFromCpuId
+  makes U-Boot's serial number from it). Only called when U-Boot gave none.
+**/
+EFI_STATUS
+EFIAPI
+BootPlatformGetCpuId (
+  OUT UINT8  *CpuId
+  );
+
+/**
   Which storage a block device / file system handle's device path is on.
 **/
 BOOT_DEVICE_KIND

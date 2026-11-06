@@ -610,3 +610,94 @@ BootPolicyDecide (
 
   return O.Overflow ? RETURN_BUFFER_TOO_SMALL : RETURN_SUCCESS;
 }
+
+//
+// U-Boot's crc32_no_comp (lib/crc32.c): reflected CRC-32, no pre or post
+// inversion. Bitwise: eight bytes at a time don't need a table.
+//
+STATIC
+UINT32
+Crc32NoComp (
+  IN UINT32       Crc,
+  IN CONST UINT8  *Buf,
+  IN UINTN        Size
+  )
+{
+  UINTN  Bit;
+
+  while (Size-- > 0) {
+    Crc ^= *Buf++;
+    for (Bit = 0; Bit < 8; Bit++) {
+      Crc = (Crc >> 1) ^ (0xEDB88320U & (0U - (Crc & 1)));
+    }
+  }
+
+  return Crc;
+}
+
+BOOLEAN
+EFIAPI
+BootPolicySerialFromCpuId (
+  IN  CONST UINT8  *CpuId,
+  OUT CHAR8        *Serial,
+  IN  UINTN        SerialSize
+  )
+{
+  UINT8   Low[BOOT_CPU_ID_SIZE / 2];
+  UINT8   High[BOOT_CPU_ID_SIZE / 2];
+  UINT64  Value;
+  UINTN   I;
+  UINTN   N;
+  BOOLEAN AllZero = TRUE;
+  BOOLEAN AllOnes = TRUE;
+
+  if ((Serial == NULL) || (SerialSize < 17)) {
+    return FALSE;
+  }
+
+  Serial[0] = '\0';
+  for (I = 0; I < BOOT_CPU_ID_SIZE; I++) {
+    AllZero = AllZero && (CpuId[I] == 0x00);
+    AllOnes = AllOnes && (CpuId[I] == 0xFF);
+  }
+
+  if (AllZero || AllOnes) {
+    return FALSE;
+  }
+
+  for (I = 0; I < BOOT_CPU_ID_SIZE / 2; I++) {
+    Low[I]  = CpuId[1 + (I << 1)];
+    High[I] = CpuId[I << 1];
+  }
+
+  Value  = Crc32NoComp (0, Low, sizeof (Low));
+  Value |= (UINT64)Crc32NoComp ((UINT32)Value, High, sizeof (High)) << 32;
+
+  // "%llx": lower-case hex, no leading zeros
+  for (N = 1; (N < 16) && ((Value >> (4 * N)) != 0); N++) {
+  }
+
+  for (I = 0; I < N; I++) {
+    Serial[I] = "0123456789abcdef"[(Value >> (4 * (N - 1 - I))) & 0xF];
+  }
+
+  Serial[N] = '\0';
+  return TRUE;
+}
+
+CONST CHAR8 *
+EFIAPI
+BootPolicyScreenDtbName (
+  IN CONST CHAR8  *HwRev
+  )
+{
+  if (Same (HwRev, Len (HwRev), "rg351mp")) {
+    return "rg351mp-uboot.dtb";
+  }
+
+  if (Same (HwRev, Len (HwRev), "rg351v")) {
+    return "rg351v-uboot.dtb";
+  }
+
+  return "rg351p-uboot.dtb";
+}

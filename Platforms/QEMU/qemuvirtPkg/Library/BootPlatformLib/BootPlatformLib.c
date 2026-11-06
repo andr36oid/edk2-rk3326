@@ -42,6 +42,17 @@ BootPlatformGetInfo (
   return EFI_SUCCESS;
 }
 
+EFI_STATUS
+EFIAPI
+BootPlatformGetCpuId (
+  OUT UINT8  *CpuId
+  )
+{
+  // QEMU has no OTP: a fixed ID, so the test sees the serial number path.
+  CopyMem (CpuId, "QEMU virt cpu id", 16);
+  return EFI_SUCCESS;
+}
+
 BOOT_DEVICE_KIND
 EFIAPI
 BootPlatformDeviceKind (

@@ -13,6 +13,8 @@
 
 static int  mPass, mFail;
 
+void  UbootSerialFromCpuId (const unsigned char *cpuid, char *out);   // UbootSerialRef.c
+
 #define CHECK(c, ...)                                         \
   do {                                                        \
     if (c) { mPass++; } else {                                \
@@ -297,6 +299,63 @@ main (int argc, char **argv)
     Decide (&f, FALSE, FALSE, FALSE, &bf, BootChoiceNone, &p);
     CHECK (strlen (p.Bootargs) < BOOT_ARGS_MAX, "long console fits");
   }
+
+  // Serial number from the CPU ID, against U-Boot's own code
+  {
+    static const UINT8  Qemu[BOOT_CPU_ID_SIZE] = "QEMU virt cpu id";   // qemuvirt BootPlatformLib
+    UINT8               Id[BOOT_CPU_ID_SIZE];
+    char                Got[64], Want[80];
+    int                 i, j, Bad = 0, Short = 0;
+
+    CHECK (BootPolicySerialFromCpuId (Qemu, Got, sizeof (Got)), "QEMU CPU ID");
+    UbootSerialFromCpuId (Qemu, Want);
+    CHECK_STR (Got, Want, "QEMU CPU ID serial");
+    printf ("     QEMU CPU ID serial %s\n", Got);
+
+    srand (36);
+    for (i = 0; i < 200000; i++) {
+      for (j = 0; j < BOOT_CPU_ID_SIZE; j++) {
+        Id[j] = (UINT8)rand ();
+      }
+
+      if (i < 256) {          // one byte set, the rest zero: small CRCs, short serials
+        memset (Id, 0, sizeof (Id));
+        Id[i % BOOT_CPU_ID_SIZE] = (UINT8)(i % 255 + 1);
+      }
+
+      if (!BootPolicySerialFromCpuId (Id, Got, sizeof (Got))) {
+        Bad++;
+        continue;
+      }
+
+      UbootSerialFromCpuId (Id, Want);
+      if (strcmp (Got, Want) != 0) {
+        if (Bad++ < 5) {
+          printf ("FAIL serial %d: got %s want %s\n", i, Got, Want);
+        }
+      }
+
+      Short += strlen (Got) < 16;
+    }
+
+    CHECK (Bad == 0, "%d of 200000 CPU IDs give another serial than U-Boot's", Bad);
+    CHECK (Short > 1000, "only %d serials shorter than 16 digits tested", Short);
+    printf ("     200000 CPU IDs match U-Boot (%d with leading zeros dropped)\n", Short);
+
+    memset (Id, 0, sizeof (Id));
+    CHECK (!BootPolicySerialFromCpuId (Id, Got, sizeof (Got)) && Got[0] == 0, "all-zero OTP refused");
+    memset (Id, 0xFF, sizeof (Id));
+    CHECK (!BootPolicySerialFromCpuId (Id, Got, sizeof (Got)) && Got[0] == 0, "all-0xFF OTP refused");
+    CHECK (!BootPolicySerialFromCpuId (Qemu, Got, 16), "16-byte buffer refused");
+  }
+
+  // Screen DTB names, U-Boot's cmd/hwrev.c
+  CHECK_STR (BootPolicyScreenDtbName ("rg351mp"), "rg351mp-uboot.dtb", "rg351mp");
+  CHECK_STR (BootPolicyScreenDtbName ("rg351v"), "rg351v-uboot.dtb", "rg351v");
+  CHECK_STR (BootPolicyScreenDtbName ("rg351p"), "rg351p-uboot.dtb", "rg351p");
+  CHECK_STR (BootPolicyScreenDtbName ("v00"), "rg351p-uboot.dtb", "v00");
+  CHECK_STR (BootPolicyScreenDtbName (""), "rg351p-uboot.dtb", "empty");
+  CHECK_STR (BootPolicyScreenDtbName ("rg351mpx"), "rg351p-uboot.dtb", "rg351mpx");
 
   printf ("TestBootPolicy: %d passed, %d failed\n", mPass, mFail);
   return mFail ? 1 : 0;

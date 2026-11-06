@@ -148,6 +148,7 @@ GatherFacts (
   )
 {
   CONST CHAR8  *Args = NULL;
+  UINT8        CpuId[BOOT_CPU_ID_SIZE];
 
   ZeroMem (Facts, sizeof (*Facts));
   if (Pi->BootloaderFdt != 0) {
@@ -182,8 +183,13 @@ GatherFacts (
     Facts->RamMb = (UINT32)(Pi->DramSize >> 20);
   }
 
+  // U-Boot's serial#, else the one it would make from the CPU ID
   if (Facts->SerialNo[0] == '\0') {
-    Say ("boot: no serial number (U-Boot gives it), androidboot.serialno stays empty\n");
+    if (!EFI_ERROR (BootPlatformGetCpuId (CpuId)) && BootPolicySerialFromCpuId (CpuId, Facts->SerialNo, sizeof (Facts->SerialNo))) {
+      Say ("boot: serial number %a from the CPU ID\n", Facts->SerialNo);
+    } else {
+      Say ("boot: no CPU ID, androidboot.serialno stays empty\n");
+    }
   }
 }
 

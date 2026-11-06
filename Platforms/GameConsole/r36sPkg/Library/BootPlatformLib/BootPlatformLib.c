@@ -11,7 +11,10 @@
 #include <Library/BootPlatformLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/HobLib.h>
+#include <Library/IoLib.h>
+#include <Library/TimerLib.h>
 #include <Protocol/NonDiscoverableDevice.h>
+#include <Soc/Rk3326.h>
 
 #define SDMMC_BASE   0xFF370000
 #define EMMC_BASE    0xFF390000
@@ -85,6 +88,96 @@ BootPlatformGetInfo (
   }
 
   return EFI_SUCCESS;
+}
+
+//
+// PX30 OTP (non-secure, px30.dtsi otp@ff290000), read the way the kernel's
+// drivers/nvmem/rockchip-otp.c px30_otp_read does. The CPU ID is the otp_id
+// cell, 16 bytes at 0x07 (U-Boot's CPUID_OFF/CPUID_LEN, the kernel's
+// rockchip-cpuinfo "id").
+//
+#define OTP_BASE                  0xFF290000
+#define OTPC_SBPI_CTRL            0x0020
+#define OTPC_SBPI_CMD_VALID_PRE   0x0024
+#define OTPC_USER_CTRL            0x0100
+#define OTPC_USER_ADDR            0x0104
+#define OTPC_USER_ENABLE          0x0108
+#define OTPC_USER_Q               0x0124
+#define OTPC_INT_STATUS           0x0304
+#define OTPC_SBPI_CMD0            0x1000
+#define OTPC_SBPI_CMD1            0x1004
+#define OTPC_SBPI_DONE            BIT1
+#define OTPC_USER_DONE            BIT2
+#define OTP_CPU_ID_OFFSET         0x07
+#define OTP_TIMEOUT_US            10000
+
+// CRU (clk-px30.c): clk_otp CLKGATE_CON12 bit 11, clk_otp_usr CON13 bit 6,
+// pclk_otp_ns CON15 bit 6, pclk_otp_phy CON16 bit 2; SRST_OTP_PHY = 180
+// (SOFTRST_CON11 bit 4). Hiword-mask registers, a 0 bit ungates.
+#define CRU_CLKGATE(n)   (RK3326_CRU_BASE + 0x200 + 4 * (n))
+#define CRU_SOFTRST(n)   (RK3326_CRU_BASE + 0x300 + 4 * (n))
+#define HIWORD(bit, on)  ((1U << ((bit) + 16)) | ((on) ? (1U << (bit)) : 0))
+
+STATIC
+BOOLEAN
+OtpWait (
+  IN UINT32  Flag
+  )
+{
+  UINTN  Us;
+
+  for (Us = 0; Us < OTP_TIMEOUT_US; Us++) {
+    if ((MmioRead32 (OTP_BASE + OTPC_INT_STATUS) & Flag) != 0) {
+      MmioWrite32 (OTP_BASE + OTPC_INT_STATUS, Flag);
+      return TRUE;
+    }
+
+    MicroSecondDelay (1);
+  }
+
+  return FALSE;
+}
+
+EFI_STATUS
+EFIAPI
+BootPlatformGetCpuId (
+  OUT UINT8  *CpuId
+  )
+{
+  UINTN  I;
+
+  MmioWrite32 (CRU_CLKGATE (12), HIWORD (11, FALSE));
+  MmioWrite32 (CRU_CLKGATE (13), HIWORD (6, FALSE));
+  MmioWrite32 (CRU_CLKGATE (15), HIWORD (6, FALSE));
+  MmioWrite32 (CRU_CLKGATE (16), HIWORD (2, FALSE));
+  MmioWrite32 (CRU_SOFTRST (11), HIWORD (4, TRUE));
+  MicroSecondDelay (2);
+  MmioWrite32 (CRU_SOFTRST (11), HIWORD (4, FALSE));
+
+  // ECC off: SBPI write of register 0x3A on DAP address 2
+  MmioWrite32 (OTP_BASE + OTPC_SBPI_CTRL, 0xFF000000 | (0x02 << 8));
+  MmioWrite32 (OTP_BASE + OTPC_SBPI_CMD_VALID_PRE, 0xFFFF0000 | 0x1);
+  MmioWrite32 (OTP_BASE + OTPC_SBPI_CMD0, 0xC0 | 0x3A);
+  MmioWrite32 (OTP_BASE + OTPC_SBPI_CMD1, 0x09);
+  MmioWrite32 (OTP_BASE + OTPC_SBPI_CTRL, HIWORD (0, TRUE));
+  if (!OtpWait (OTPC_SBPI_DONE)) {
+    return EFI_TIMEOUT;
+  }
+
+  MmioWrite32 (OTP_BASE + OTPC_USER_CTRL, HIWORD (0, TRUE));
+  MicroSecondDelay (5);
+  for (I = 0; I < 16; I++) {
+    MmioWrite32 (OTP_BASE + OTPC_USER_ADDR, 0xFFFF0000 | (OTP_CPU_ID_OFFSET + I));
+    MmioWrite32 (OTP_BASE + OTPC_USER_ENABLE, HIWORD (0, TRUE));
+    if (!OtpWait (OTPC_USER_DONE)) {
+      break;
+    }
+
+    CpuId[I] = MmioRead8 (OTP_BASE + OTPC_USER_Q);
+  }
+
+  MmioWrite32 (OTP_BASE + OTPC_USER_CTRL, HIWORD (0, FALSE));
+  return (I == 16) ? EFI_SUCCESS : EFI_TIMEOUT;
 }
 
 BOOT_DEVICE_KIND
