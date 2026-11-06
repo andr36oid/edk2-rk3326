@@ -74,16 +74,26 @@ void EFIAPI GpioPinWrite (UINT8 G, UINT8 P, BOOLEAN V) { gpio_val[G][P] = V; gpi
 BOOLEAN EFIAPI GpioPinGetLevel (UINT8 G, UINT8 P) { return gpio_dir[G][P] == GPIO_PIN_OUTPUT ? gpio_val[G][P] : gpio_in[G][P]; }
 void EFIAPI GpioPinSetFunction (UINT8 G, UINT8 P, UINT8 F) { gpio_func[G][P] = F; }
 
-static int charger_pmic, boost_calls_on, boost_calls_off;
+static int charger_pmic, boost_calls_on, boost_calls_off, otg_calls_on, otg_calls_off;
+static char reg_log[64];          // regulator calls in order: B/b boost on/off, O/o OTG switch on/off
 EFI_STATUS EFIAPI RkPmicGetPowerStatus (OUT RK_POWER_STATUS *S) { memset (S, 0, sizeof (*S)); S->ChargerPresent = charger_pmic; return EFI_SUCCESS; }
 EFI_STATUS EFIAPI RkPmicSetRegulator (IN CONST VOID *Fdt, IN INT32 Node, IN BOOLEAN En)
 {
   const char *n = FdtGetName (Fdt, Node, NULL);
-  CHECK (strcmp (n, "BOOST") == 0 || strcmp (n, "boost") == 0 || 1);
-  if (En) boost_calls_on++; else boost_calls_off++;
+  size_t l = strlen (reg_log);
+  if (n && !strcmp (n, "BOOST")) {
+    if (En) boost_calls_on++; else boost_calls_off++;
+    if (l < sizeof (reg_log) - 1) reg_log[l] = En ? 'B' : 'b';
+  } else if (n && !strcmp (n, "OTG_SWITCH")) {
+    if (En) otg_calls_on++; else otg_calls_off++;
+    if (l < sizeof (reg_log) - 1) reg_log[l] = En ? 'O' : 'o';
+  } else {
+    CHECK (0);                    // USB switches nothing else
+  }
   return EFI_SUCCESS;
 }
 INTN EFIAPI AsciiStrCmp (IN CONST CHAR8 *a, IN CONST CHAR8 *b) { return strcmp ((const char *)a, (const char *)b); }
+UINTN EFIAPI AsciiStrnLenS (IN CONST CHAR8 *s, IN UINTN max) { return strnlen ((const char *)s, max); }
 
 // GSNPSID is read-only in the model
 static void fresh (void)
@@ -217,8 +227,11 @@ int fdt_nop_property (void *fdt, int nodeoffset, const char *name);   // libfdt 
 static void clear_actions (void)
 {
   memset (gpio_val, 0, sizeof (gpio_val)); memset (gpio_dir, 0, sizeof (gpio_dir)); memset (gpio_in, 0, sizeof (gpio_in));
-  gpio_log_n = 0; boost_calls_on = boost_calls_off = 0; charger_pmic = 0;
+  gpio_log_n = 0; boost_calls_on = boost_calls_off = otg_calls_on = otg_calls_off = 0; charger_pmic = 0;
+  memset (reg_log, 0, sizeof (reg_log));
 }
+
+static int pin_b3_override = -1;   // >= 0: GPIO0_B3 reads this instead of the pin argument
 
 // Returns a one-word summary of what a device tree does with the port.
 static void run_dtb (const char *path, int pin_chg, int pmic_chg, char *out, EFI_STATUS *st)
@@ -226,7 +239,8 @@ static void run_dtb (const char *path, int pin_chg, int pmic_chg, char *out, EFI
   long n; void *fdt = load (path, &n);
   if (!fdt) { strcpy (out, "unreadable"); return; }
   clear_actions ();
-  gpio_in[0][11] = pin_chg; gpio_in[3][5] = pin_chg;   // dc_det: GPIO0_B3 on most boards, GPIO3_A5 on the D-28S
+  gpio_in[0][11] = (pin_b3_override >= 0) ? pin_b3_override : pin_chg;   // dc_det: GPIO0_B3 on most boards,
+  gpio_in[3][5] = pin_chg;                                                // GPIO3_A5 on EE boards (D-28S)
   charger_pmic = pmic_chg;
   *st = RkUsbPlatformApplyFdt (fdt);
   int host_gpio = -1, host_bank = -1;
@@ -317,14 +331,26 @@ static void test_boards (const char *dir)
   printf ("  D-28S none:  %s\n", out);
   CHECK_EQ (st, EFI_SUCCESS);
   CHECK_EQ (gpio_val[3][4], 1); CHECK_EQ (boost_calls_on, 1); CHECK_EQ (boost_calls_off, 1);   // off for the probe, on for host
+  CHECK_EQ (strcmp (reg_log, "obBO"), 0);   // kernel order: OTG switch then boost off; boost then OTG switch on
   CHECK_EQ (gpio_log[0].val, 0); CHECK_EQ (gpio_log[gpio_log_n - 1].val, 1);                  // charge mode first, host last
   CHECK (mock_delay_us >= 150000 && mock_delay_us < 200000);
-  mock_delay_us = 0; run_dtb (path, 1, 0, out, &st);          // DC detect pin says charger
+  // EE detect pin (GPIO3_A5) reads "in" with nothing plugged: the DT says it
+  // needs the PMIC to see power too (andr36oid,dc-det-needs-power), as in the kernel
+  mock_delay_us = 0; run_dtb (path, 1, 0, out, &st);          // pin only: no charger, host
   printf ("  D-28S pin:   %s\n", out);
-  CHECK_EQ (st, EFI_NOT_READY); CHECK_EQ (gpio_val[3][4], 0); CHECK_EQ (boost_calls_on, 0); CHECK_EQ (boost_calls_off, 1);
-  mock_delay_us = 0; run_dtb (path, 0, 1, out, &st);          // PMIC says charger
+  CHECK_EQ (st, EFI_SUCCESS); CHECK_EQ (gpio_val[3][4], 1); CHECK_EQ (boost_calls_on, 1); CHECK_EQ (boost_calls_off, 1);
+  CHECK_EQ (strcmp (reg_log, "obBO"), 0);
+  pin_b3_override = 1;                                         // GPIO0_B3 says "in", the EE pin "out", PMIC power:
+  mock_delay_us = 0; run_dtb (path, 0, 1, out, &st);          // the EE pin is the one that counts: host
+  pin_b3_override = -1;
+  CHECK_EQ (st, EFI_SUCCESS); CHECK_EQ (gpio_val[3][4], 1);
+  mock_delay_us = 0; run_dtb (path, 0, 1, out, &st);          // PMIC only: pin says out, host
   printf ("  D-28S pmic:  %s\n", out);
-  CHECK_EQ (st, EFI_NOT_READY); CHECK_EQ (gpio_val[3][4], 0); CHECK_EQ (boost_calls_on, 0);
+  CHECK_EQ (st, EFI_SUCCESS); CHECK_EQ (gpio_val[3][4], 1); CHECK_EQ (boost_calls_on, 1);
+  mock_delay_us = 0; run_dtb (path, 1, 1, out, &st);          // both: charger in, port stays charging
+  printf ("  D-28S both:  %s\n", out);
+  CHECK_EQ (st, EFI_NOT_READY); CHECK_EQ (gpio_val[3][4], 0); CHECK_EQ (boost_calls_on, 0); CHECK_EQ (boost_calls_off, 1);
+  CHECK_EQ (otg_calls_on, 0); CHECK_EQ (strcmp (reg_log, "ob"), 0);   // port stays charging: nothing on
 }
 
 int main (int argc, char **argv)

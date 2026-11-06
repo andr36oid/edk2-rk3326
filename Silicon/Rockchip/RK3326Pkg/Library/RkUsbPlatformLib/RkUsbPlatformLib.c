@@ -208,7 +208,10 @@ typedef struct {
   UINT8      DcBank;
   UINT8      DcPin;
   BOOLEAN    DcActiveHigh;
+  BOOLEAN    DcFromCharger;       // taken from the rk817,charger node
+  BOOLEAN    DcNeedsPower;        // andr36oid,dc-det-needs-power: pin AND PMIC
   INT32      BoostNode;           // PMIC boost regulator node, -1 if none
+  INT32      OtgSwitchNode;       // PMIC OTG switch (boost to the port), -1 if none
   BOOLEAN    BoostOnlyForOtg;
   BOOLEAN    HostSupplyProp;
 } USB_BOARD;
@@ -271,6 +274,43 @@ ReadGpioProp (
   return TRUE;
 }
 
+/**
+  TRUE if the node's compatible list holds Compatible.
+**/
+STATIC
+BOOLEAN
+NodeIsCompatible (
+  IN CONST VOID   *Fdt,
+  IN INT32        Node,
+  IN CONST CHAR8  *Compatible
+  )
+{
+  CONST CHAR8  *List;
+  INT32        Len;
+  UINTN        Used;
+
+  List = FdtGetProp (Fdt, Node, "compatible", &Len);
+  if ((List == NULL) || (Len <= 0)) {
+    return FALSE;
+  }
+
+  while (Len > 0) {
+    Used = AsciiStrnLenS (List, (UINTN)Len);
+    if (Used >= (UINTN)Len) {
+      return FALSE;             // not terminated inside the property
+    }
+
+    if (AsciiStrCmp (List, Compatible) == 0) {
+      return TRUE;
+    }
+
+    List += Used + 1;
+    Len  -= (INT32)(Used + 1);
+  }
+
+  return FALSE;
+}
+
 STATIC
 VOID
 ScanBoard (
@@ -284,9 +324,11 @@ ScanBoard (
   CONST CHAR8   *Name;
   BOOLEAN       Low;
   BOOLEAN       EnableHigh;
+  BOOLEAN       IsCharger;
 
   ZeroMem (Board, sizeof (*Board));
-  Board->BoostNode = -1;
+  Board->BoostNode     = -1;
+  Board->OtgSwitchNode = -1;
 
   Depth = 0;
   for (Node = FdtNextNode (Fdt, 0, &Depth); Node >= 0; Node = FdtNextNode (Fdt, Node, &Depth)) {
@@ -303,6 +345,8 @@ ScanBoard (
         }
       } else if (AsciiStrCmp (Name, "boost") == 0) {
         Board->BoostNode = Node;
+      } else if (AsciiStrCmp (Name, "otg_switch") == 0) {
+        Board->OtgSwitchNode = Node;
       }
     }
 
@@ -314,9 +358,19 @@ ScanBoard (
       Board->HostSupplyProp = TRUE;
     }
 
-    if (!Board->HaveDcDet && ReadGpioProp (Fdt, Node, "dc_det_gpio", &Board->DcBank, &Board->DcPin, &Low)) {
-      Board->HaveDcDet    = TRUE;
-      Board->DcActiveHigh = !Low;
+    //
+    // The kernel's charger driver reads dc_det_gpio and the "needs power" flag
+    // from its own node; the battery node may repeat the pin and is only used
+    // when there is no charger node with one.
+    //
+    IsCharger = NodeIsCompatible (Fdt, Node, "rk817,charger");
+    if ((!Board->HaveDcDet || (IsCharger && !Board->DcFromCharger)) &&
+        ReadGpioProp (Fdt, Node, "dc_det_gpio", &Board->DcBank, &Board->DcPin, &Low))
+    {
+      Board->HaveDcDet     = TRUE;
+      Board->DcActiveHigh  = !Low;
+      Board->DcFromCharger = IsCharger;
+      Board->DcNeedsPower  = FdtGetProp (Fdt, Node, "andr36oid,dc-det-needs-power", &Len) != NULL;
     }
   }
 }
@@ -360,7 +414,17 @@ ChargerIn (
     Pmic = Power.ChargerPresent;
   }
 
-  DEBUG ((DEBUG_INFO, "USB: charger: dc_det pin %d, pmic %d\n", Pin, Pmic));
+  DEBUG ((DEBUG_INFO, "USB: charger: dc_det pin %d, pmic %d%a\n", Pin, Pmic, Board->DcNeedsPower ? " (pin and power)" : ""));
+
+  //
+  // EE boards' pin reads "in" with nothing plugged (andr36oid,dc-det-needs-power):
+  // like the kernel, a charger is in only if the PMIC sees power too. Anywhere
+  // else either one counts (the genuine R36S never sets the PMIC flag).
+  //
+  if (Board->HaveDcDet && Board->DcNeedsPower) {
+    return Pin && Pmic;
+  }
+
   return Pin || Pmic;
 }
 
@@ -394,10 +458,17 @@ RkUsbPlatformApplyFdt (
 
   if (In.SharedWithCharger) {
     // Host mode hides the charger from the console: go back to charge mode
-    // first, give the charger time to show, then decide.
+    // first, give the charger time to show, then decide. Port power off in
+    // the kernel's order (rk817_charge_set_otg_state): OTG switch, then boost.
     SetHostGpio (&Board, FALSE);
-    if (Board.BoostOnlyForOtg && (Board.BoostNode >= 0)) {
-      RkPmicSetRegulator (Fdt, Board.BoostNode, FALSE);
+    if (Board.BoostOnlyForOtg) {
+      if (Board.OtgSwitchNode >= 0) {
+        RkPmicSetRegulator (Fdt, Board.OtgSwitchNode, FALSE);
+      }
+
+      if (Board.BoostNode >= 0) {
+        RkPmicSetRegulator (Fdt, Board.BoostNode, FALSE);
+      }
     }
 
     MicroSecondDelay (CHARGE_PROBE_SETTLE_US);
@@ -410,8 +481,19 @@ RkUsbPlatformApplyFdt (
     return EFI_NOT_READY;
   }
 
-  if (Board.BoostOnlyForOtg && (Board.BoostNode >= 0)) {
-    DEBUG ((DEBUG_INFO, "USB: boost on: %r\n", RkPmicSetRegulator (Fdt, Board.BoostNode, TRUE)));
+  //
+  // With andr36oid,boost-only-for-otg nothing else turns these on (no boot-on
+  // in the DT): the kernel's OTG power-on is the boost, then the OTG switch
+  // that puts it on the port.
+  //
+  if (Board.BoostOnlyForOtg) {
+    if (Board.BoostNode >= 0) {
+      DEBUG ((DEBUG_INFO, "USB: boost on: %r\n", RkPmicSetRegulator (Fdt, Board.BoostNode, TRUE)));
+    }
+
+    if (Board.OtgSwitchNode >= 0) {
+      DEBUG ((DEBUG_INFO, "USB: OTG switch on: %r\n", RkPmicSetRegulator (Fdt, Board.OtgSwitchNode, TRUE)));
+    }
   }
 
   SetHostGpio (&Board, TRUE);
