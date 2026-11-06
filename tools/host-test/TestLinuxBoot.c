@@ -226,14 +226,24 @@ TestFdt (
   CHECK (Got[1].Base == Mem[1].Base && Got[1].Size == Mem[1].Size);
 
   // Placement checks against the fixed-up tree.
-  CHECK (LinuxFdtRangeConflicts (Buf, Mem, 2, 0x00100000, 0x20000, &Name));  // below RAM
+  CHECK (LinuxFdtRangeConflicts (Buf, Mem, 2, 0x00100000, 0x20000, &Name, NULL));  // below RAM
   CHECK (Name != NULL && strcmp (Name, "outside /memory") == 0);
-  CHECK (LinuxFdtRangeConflicts (Buf, NULL, 0, 0x00180000, 0x1000, &Name)); // ramoops
+  CHECK (LinuxFdtRangeConflicts (Buf, NULL, 0, 0x00180000, 0x1000, &Name, NULL)); // ramoops
   CHECK (Name != NULL && strcmp (Name, "ramoops@110000") == 0);
-  CHECK (LinuxFdtRangeConflicts (Buf, NULL, 0, 0x3E000000, 0x1000, &Name)); // logo region
+  CHECK (LinuxFdtRangeConflicts (Buf, NULL, 0, 0x3E000000, 0x1000, &Name, NULL)); // logo region
   CHECK (Name != NULL && strncmp (Name, "drm-logo", 8) == 0);
-  CHECK (!LinuxFdtRangeConflicts (Buf, Mem, 2, 0x10000000, 0x2000000, &Name));
-  CHECK (LinuxFdtRangeConflicts (Buf, Mem, 2, 0x08300000, 0x2000000, &Name)); // OP-TEE hole
+  CHECK (!LinuxFdtRangeConflicts (Buf, Mem, 2, 0x10000000, 0x2000000, &Name, NULL));
+  CHECK (LinuxFdtRangeConflicts (Buf, Mem, 2, 0x08300000, 0x2000000, &Name, NULL)); // OP-TEE hole
+  {
+    UINT64  Region = 1;
+
+    // The start of the region hit, so placement can try below it
+    CHECK (LinuxFdtRangeConflicts (Buf, NULL, 0, 0x00180000, 0x1000, &Name, &Region) && Region == 0x00110000);
+    CHECK (LinuxFdtRangeConflicts (Buf, NULL, 0, 0x3E000000, 0x1000, &Name, &Region) && Region == 0x3DC00000);
+    CHECK (LinuxFdtRangeConflicts (Buf, Mem, 2, 0x00100000, 0x20000, &Name, &Region) && Region == 0);
+    Region = 1;
+    CHECK (!LinuxFdtRangeConflicts (Buf, Mem, 2, 0x10000000, 0x2000000, &Name, &Region) && Region == 0);
+  }
 
   // No handover FDT, live framebuffer only: the region is filled, nothing else.
   CHECK (FdtOpenInto (Src, Buf, sizeof (Buf)) == 0);
@@ -244,6 +254,18 @@ TestFdt (
   CHECK (LinuxFdtFixup (Buf, sizeof (Buf), &Fix) == RETURN_SUCCESS);
   WriteFile (OutDir, "fixed-fb.dtb", Buf, FdtTotalSize (Buf));
   CHECK (LinuxFdtGetMemory (Buf, Got, 8) == 2);   // MemoryCount 0 keeps the DTB's
+
+  // A handover FDT, but the firmware moved the screen (LogoFromFb): U-Boot's
+  // region and route properties are stale, the framebuffer is the region.
+  CHECK (FdtOpenInto (Src, Buf, sizeof (Buf)) == 0);
+  memset (&Fix, 0, sizeof (Fix));
+  Fix.Bootargs    = "a b c";
+  Fix.HandoverFdt = Handover;
+  Fix.FbBase      = 0x3E800000;
+  Fix.FbSize      = 0x12C000;
+  Fix.LogoFromFb  = TRUE;
+  CHECK (LinuxFdtFixup (Buf, sizeof (Buf), &Fix) == RETURN_SUCCESS);
+  WriteFile (OutDir, "fixed-moved.dtb", Buf, FdtTotalSize (Buf));
 
   // A buffer with no room fails cleanly instead of corrupting.
   CHECK (FdtOpenInto (Src, Buf, (INT32)SrcSize) == 0);

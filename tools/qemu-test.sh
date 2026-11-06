@@ -1,9 +1,9 @@
 #!/bin/bash
 # QEMU test of the andr36oid boot app and its Linux handoff.
 #   tools/qemu-test.sh [outdir]
-#   QEMU_CASES="android menu" tools/qemu-test.sh    (default: all five)
+#   QEMU_CASES="android menu" tools/qemu-test.sh    (default: all)
 # Needs Mu-qemuvirt.bin (build-mu.sh qemuvirt DEBUG), qemu-system-aarch64,
-# aarch64-linux-gnu-gcc, mtools, mkimage (u-boot-tools), dtc, python3.
+# aarch64-linux-gnu-gcc, mtools, mkimage (u-boot-tools), dtc/fdtput, python3.
 #
 # The firmware runs on QEMU's virt machine (Platforms/QEMU/qemuvirtPkg) with
 # the same Andr36oidPkg code as the handhelds. A BOOT FAT image goes into
@@ -21,7 +21,7 @@ DISK_ADDR=0x50000000        # PcdMemDiskBase
 DISK_MB=32                  # PcdMemDiskSize
 RAM_BASE_MB=1024            # guest RAM starts at 1 GB
 TIMEOUT=${QEMU_TIMEOUT:-180}
-CASES=" ${QEMU_CASES:-android recovery menu poweroff reset} "
+CASES=" ${QEMU_CASES:-android recovery menu poweroff reset logo} "
 want() { [[ $CASES == *" $1 "* ]]; }
 mkdir -p "$OUT"
 fail=0
@@ -79,6 +79,8 @@ run() {
         -kernel "$FW" -device loader,file="$OUT/$c.img",addr=$DISK_ADDR,force-raw=on
         -display none -serial mon:stdio -nodefaults)
     [ -n "$append" ] && args+=(-append "$append")
+    # A bootloader FDT of the case's own (QEMU still adds /chosen and /memory)
+    [ -f "$OUT/$c.dtb" ] && args+=(-dtb "$OUT/$c.dtb")
     echo "== $c ($machine)"
     python3 "$T/qemu-run.py" "$OUT/$c.log" "$TIMEOUT" "$@" -- qemu-system-aarch64 "${args[@]}"
     local code=$?
@@ -192,6 +194,35 @@ if want reset; then
     has reset "Powering off"
     onboot reset uefi-log-prev.txt "Could not read BOOT/ramdisk.uimg"
     onboot reset uefi-log.txt "boot: menu: Power off"
+fi
+
+# 6. U-Boot's logo buffer is only reserved in the FDT U-Boot passes (the
+# DTB's drm-logo node is a placeholder). A first start shows where kernel,
+# initrd and FDT land; then a bootloader FDT reserves 16 MB around that spot
+# as the logo buffer. They must move out of it, and the DTB Linux gets must
+# reserve it.
+if want logo; then
+    mkboot "$OUT/logo.img" $K $RD "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" || exit 2
+    rm -f "$OUT/logo.dtb"
+    run logo "virt,virtualization=on,gic-version=2" "$FACTS" >/dev/null
+    at=$(grep -ao "TESTKERNEL: started at EL2, entry 0x[0-9a-f]*" "$OUT/logo.txt" | sed 's/.*entry 0x//')
+    [ -n "$at" ] || { echo "FAIL logo: the first start did not reach the kernel"; exit 1; }
+    lo=$(printf '%x' $(( (0x$at & ~0x1fffff) - 0x800000 )))
+    echo "     logo buffer at 0x$lo+0x1000000 (the first start put the kernel at 0x$at)"
+    qemu-system-aarch64 -machine virt,virtualization=on,gic-version=2,dumpdtb="$OUT/logo.dtb" -cpu cortex-a35 -m 1024 \
+        -nodefaults -display none >/dev/null 2>&1
+    fdtput -c "$OUT/logo.dtb" /reserved-memory &&
+        fdtput -t x "$OUT/logo.dtb" /reserved-memory '#address-cells' 2 &&
+        fdtput -t x "$OUT/logo.dtb" /reserved-memory '#size-cells' 2 &&
+        fdtput "$OUT/logo.dtb" /reserved-memory ranges &&
+        fdtput -c "$OUT/logo.dtb" /reserved-memory/drm-logo@$lo &&
+        fdtput -t s "$OUT/logo.dtb" /reserved-memory/drm-logo@$lo compatible rockchip,drm-logo &&
+        fdtput -t x "$OUT/logo.dtb" /reserved-memory/drm-logo@$lo reg 0 $lo 0 1000000 || exit 2
+    run logo "virt,virtualization=on,gic-version=2" "$FACTS"
+    has logo "would hit drm-logo@$lo"
+    has logo "TESTKERNEL: reserved drm-logo@00000000 0x00000000$lo+0x0000000001000000"
+    count logo "TESTKERNEL: RESULT PASS" 1
+    hasnt logo "TESTKERNEL: FAIL"
 fi
 
 [ $fail = 0 ] && echo "== QEMU tests passed" || { echo "== QEMU tests FAILED (logs in $OUT/*.txt)"; exit 1; }

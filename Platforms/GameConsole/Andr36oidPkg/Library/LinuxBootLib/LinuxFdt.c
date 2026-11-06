@@ -174,7 +174,8 @@ LinuxFdtRangeConflicts (
   IN  UINTN                     MemoryCount,
   IN  UINT64                    Base,
   IN  UINT64                    Size,
-  OUT CONST CHAR8               **Name OPTIONAL
+  OUT CONST CHAR8               **Name OPTIONAL,
+  OUT UINT64                    *RegionBase OPTIONAL
   )
 {
   INT32        Parent;
@@ -191,6 +192,10 @@ LinuxFdtRangeConflicts (
 
   if (Name != NULL) {
     *Name = NULL;
+  }
+
+  if (RegionBase != NULL) {
+    *RegionBase = 0;
   }
 
   if ((Memory != NULL) && (MemoryCount > 0)) {
@@ -216,6 +221,10 @@ LinuxFdtRangeConflicts (
         *Name = "/memreserve/";
       }
 
+      if (RegionBase != NULL) {
+        *RegionBase = RBase;
+      }
+
       return TRUE;
     }
   }
@@ -235,6 +244,10 @@ LinuxFdtRangeConflicts (
       if (Overlaps (Base, Size, RBase, RSize)) {
         if (Name != NULL) {
           *Name = FdtGetName (Fdt, Node, NULL);
+        }
+
+        if (RegionBase != NULL) {
+          *RegionBase = RBase;
         }
 
         return TRUE;
@@ -512,7 +525,7 @@ SetLogo (
     return 0;
   }
 
-  if ((Fixup->HandoverFdt != NULL) && (FdtCheckHeader (Fixup->HandoverFdt) == 0) &&
+  if (!Fixup->LogoFromFb && (Fixup->HandoverFdt != NULL) && (FdtCheckHeader (Fixup->HandoverFdt) == 0) &&
       GetLogoRegion (Fixup->HandoverFdt, &Base, &Size))
   {
     Err = CopyRouteProperties (Fdt, Fixup->HandoverFdt);

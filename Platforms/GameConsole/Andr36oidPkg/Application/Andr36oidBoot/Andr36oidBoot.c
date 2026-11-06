@@ -321,6 +321,15 @@ StartLinux (
     Say ("boot: RAM size unknown, the DTB's /memory stays\n");
   }
 
+  // Nothing above the end of DRAM (RK RAM starts at 0; QEMU always has banks)
+  for (Offset = 0; Offset < Pi->MemoryCount; Offset++) {
+    Params.RamEnd = MAX (Params.RamEnd, Pi->Memory[Offset].Base + Pi->Memory[Offset].Size);
+  }
+
+  if (Params.RamEnd == 0) {
+    Params.RamEnd = Pi->DramSize;
+  }
+
   // Boot logo handover: from U-Boot's FDT, else the live framebuffer
   Params.Fixup.HandoverFdt = Handover;
   if (Pi->FbValid) {

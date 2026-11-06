@@ -92,6 +92,13 @@ if fdtget "$D" /chosen linux,initrd-start >/dev/null 2>&1; then
 else
     echo "ok   no initrd properties without an initrd"
 fi
+D=$OUT/fixed-moved.dtb
+expect "$D" /reserved-memory/drm-logo@00000000 reg "-tx" "0 3e800000 0 12c000"
+if fdtget "$D" /display-subsystem/route/route-dsi logo,width >/dev/null 2>&1; then
+    echo "FAIL moved screen: U-Boot's route properties copied"; fail=1
+else
+    echo "ok   moved screen: no route properties from U-Boot"
+fi
 if [ -f "$REAL" ]; then
     D=$OUT/fixed-real.dtb
     dtc -q -I dtb -O dts -o /dev/null "$D" && echo "ok   real DTB still parses" || { echo "FAIL real DTB"; fail=1; }
