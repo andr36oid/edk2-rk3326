@@ -14,6 +14,7 @@ typedef unsigned char  u8;
 #define IMAGE_SIZE   0x400000UL
 #define SZ_2M        0x200000UL
 #define LOG_PREV     0x41E80000UL      // qemuvirt's RAM log, the previous start's half
+#define RESTART_MARK 0x53524B54U       // "TKRS"
 
 #define PSCI_SYSTEM_OFF    0x84000008UL
 #define PSCI_SYSTEM_RESET  0x84000009UL
@@ -217,7 +218,7 @@ test_main (u64 x0, u64 x1, u64 x2, u64 x3, u64 daif, u64 el, u64 sctlr, u64 entr
   const u8         *fdt = (const u8 *)x0;
   struct fdt_info  fi;
   u64              fdt_size = 0, base = entry - TEXT_OFFSET;
-  int              fdt_ok, i, want_reset, have_prev;
+  int              fdt_ok, i, want_reset, restarted;
   const char       *p;
 
   fi.bootargs  = 0;
@@ -297,19 +298,22 @@ test_main (u64 x0, u64 x1, u64 x2, u64 x3, u64 daif, u64 el, u64 sctlr, u64 entr
 Out:
   puts_ (fails ? "TESTKERNEL: RESULT FAIL\n" : "TESTKERNEL: RESULT PASS\n");
 
-  // A warm restart once, so the next start has a previous log (uefi-log-prev.txt)
-  // (volatile: compared against a string literal GCC would fold the fixed
-  // address into a link-time constant, and this image runs where it lands)
+  // A warm restart once, to check the next start keeps no previous log of a
+  // start that reached Linux. The "already restarted" mark sits in the last
+  // word of the previous-log half, which the firmware only overwrites when
+  // it (wrongly) keeps a handed-off log: then this restarts until the timeout.
+  // (volatile: GCC would fold the fixed address into a link-time constant,
+  // and this image runs where it lands)
   {
-    volatile const u8  *m = (volatile const u8 *)LOG_PREV;
+    volatile u32  *m = (volatile u32 *)(LOG_PREV + 0x80000 - 8);
 
-    have_prev = (m[0] == 'Q') && (m[1] == 'V') && (m[2] == 'L') && (m[3] == 'G');
-  }
-
-  want_reset = fi.bootargs && contains (fi.bootargs, "qemu_test.reset_once");
-  if (want_reset && !have_prev) {
-    puts_ ("TESTKERNEL: warm restart\n");
-    psci_call (PSCI_SYSTEM_RESET, el == 2);
+    restarted = (*m == RESTART_MARK);
+    want_reset = fi.bootargs && contains (fi.bootargs, "qemu_test.reset_once");
+    if (want_reset && !restarted) {
+      *m = RESTART_MARK;
+      puts_ ("TESTKERNEL: warm restart\n");
+      psci_call (PSCI_SYSTEM_RESET, el == 2);
+    }
   }
 
   puts_ ("TESTKERNEL: power off\n");

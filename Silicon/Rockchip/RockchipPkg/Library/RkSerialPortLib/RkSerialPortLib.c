@@ -37,7 +37,7 @@ typedef struct {
   UINT32    Column;
   UINT32    Row;
   UINT32    ScreenOff;
-  UINT32    Reserved;
+  UINT32    HandedOff;      // set right before Linux starts, see RkLogHandoff
 } LOG_HEADER;
 
 #define CURRENT   ((LOG_HEADER *)(UINTN)RK_LOG_BASE)
@@ -94,7 +94,8 @@ RkLogStart (
   VOID
   )
 {
-  if (HeaderValid (CURRENT)) {
+  // A log that reached Linux is not kept: Linux has reused that RAM since.
+  if (HeaderValid (CURRENT) && (CURRENT->HandedOff == 0)) {
     CopyMem (PREVIOUS, CURRENT, LOG_HALF);
   } else {
     ZeroMem (PREVIOUS, sizeof (LOG_HEADER));
@@ -274,6 +275,17 @@ RkLogScreen (
 {
   if (HeaderValid (CURRENT)) {
     CURRENT->ScreenOff = Enable ? 0 : 1;
+  }
+}
+
+VOID
+EFIAPI
+RkLogHandoff (
+  IN BOOLEAN  HandedOff
+  )
+{
+  if (HeaderValid (CURRENT)) {
+    CURRENT->HandedOff = HandedOff ? 1 : 0;
   }
 }
 

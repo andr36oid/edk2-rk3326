@@ -48,6 +48,18 @@ RkLogScreen (
   );
 
 /**
+  Mark the log as handed to Linux (TRUE) right before the kernel starts, or
+  take the mark back (FALSE) if starting it failed. Linux reuses this RAM, so
+  the next start keeps no previous copy of a handed-off log: the previous log
+  is only kept for a start that died inside the firmware.
+**/
+VOID
+EFIAPI
+RkLogHandoff (
+  IN BOOLEAN  HandedOff
+  );
+
+/**
   Bytes a full RkLogRead would return.
 **/
 UINTN

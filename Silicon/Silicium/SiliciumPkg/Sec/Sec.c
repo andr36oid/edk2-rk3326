@@ -25,6 +25,10 @@ ClearFrameBuffer (VOID)
 {
   EFI_MEMORY_REGION_DESCRIPTOR FrameBufferRegion;
 
+  // The lookup leaves the descriptor alone when there is no such region
+  // (no live framebuffer), so start from zero instead of stack garbage.
+  ZeroMem (&FrameBufferRegion, sizeof (FrameBufferRegion));
+
   // Locate "Display Reserved" Memory Region
   LocateMemoryRegionByName ("Display Reserved", &FrameBufferRegion);
   LocateMemoryRegionByName ("Display_Reserved", &FrameBufferRegion);
@@ -58,6 +62,8 @@ InitializeMemory (VOID)
   EFI_MEMORY_REGION_DESCRIPTOR  UefiMemoryRegion;
   EFI_HOB_HANDOFF_INFO_TABLE   *HobList;
 
+  ZeroMem (&UefiMemoryRegion, sizeof (UefiMemoryRegion));
+
   // Locate "DXE Heap" Memory Region
   LocateMemoryRegionByName ("DXE Heap", &UefiMemoryRegion);
   LocateMemoryRegionByName ("DXE_Heap", &UefiMemoryRegion);
@@ -67,7 +73,7 @@ InitializeMemory (VOID)
   UINTN UefiMemorySize = UefiMemoryRegion.Length;
 
   // Verify UEFI Memory Base
-  if (UefiMemoryBase == 0 && UefiMemorySize == 0) {
+  if (UefiMemorySize == 0) {
     DEBUG ((EFI_D_ERROR, "Failed to Locate \"DXE Heap\" Memory Region!\n"));
     return EFI_NOT_FOUND;
   }

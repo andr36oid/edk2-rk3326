@@ -1,7 +1,7 @@
 #!/bin/bash
 # QEMU test of the andr36oid boot app and its Linux handoff.
 #   tools/qemu-test.sh [outdir]
-#   QEMU_CASES="android menu" tools/qemu-test.sh    (default: all four)
+#   QEMU_CASES="android menu" tools/qemu-test.sh    (default: all five)
 # Needs Mu-qemuvirt.bin (build-mu.sh qemuvirt DEBUG), qemu-system-aarch64,
 # aarch64-linux-gnu-gcc, mtools, mkimage (u-boot-tools), dtc, python3.
 #
@@ -21,7 +21,7 @@ DISK_ADDR=0x50000000        # PcdMemDiskBase
 DISK_MB=32                  # PcdMemDiskSize
 RAM_BASE_MB=1024            # guest RAM starts at 1 GB
 TIMEOUT=${QEMU_TIMEOUT:-180}
-CASES=" ${QEMU_CASES:-android recovery menu poweroff} "
+CASES=" ${QEMU_CASES:-android recovery menu poweroff reset} "
 want() { [[ $CASES == *" $1 "* ]]; }
 mkdir -p "$OUT"
 fail=0
@@ -77,7 +77,7 @@ run() {
     local args=(-machine "$machine" -cpu cortex-a35 -m 1024
         -object memory-backend-file,id=ram,size=1G,mem-path="$ram",share=on -machine memory-backend=ram
         -kernel "$FW" -device loader,file="$OUT/$c.img",addr=$DISK_ADDR,force-raw=on
-        -display none -serial stdio -monitor none -nodefaults)
+        -display none -serial mon:stdio -nodefaults)
     [ -n "$append" ] && args+=(-append "$append")
     echo "== $c ($machine)"
     python3 "$T/qemu-run.py" "$OUT/$c.log" "$TIMEOUT" "$@" -- qemu-system-aarch64 "${args[@]}"
@@ -102,6 +102,9 @@ count() {    # <case> <text> <n>
 line() {     # <case> <exact line>
     if grep -aqxF -- "$2" "$OUT/$1.txt"; then echo "ok   $1: exact line ${2:0:60}..."; else
         echo "FAIL $1: no line '$2'"; grep -F "TESTKERNEL: bootargs" "$OUT/$1.txt" | sed 's/^/     got: /'; fail=1; fi
+}
+noboot() {   # <case> <file>: the firmware did not write it
+    if mtype -i "$OUT/$1-after.img" "::$2" >/dev/null 2>&1; then echo "FAIL $1: BOOT/$2 written"; fail=1; else echo "ok   $1: no BOOT/$2"; fi
 }
 onboot() {   # <case> <file> <text>: in a file the firmware wrote to BOOT
     if mtype -i "$OUT/$1-after.img" "::$2" 2>/dev/null | tr -d '\r' | grep -qF -- "$3"; then
@@ -130,7 +133,8 @@ if want android; then
     has android "TESTKERNEL: warm restart"
     onboot android uefi-log.txt "boot: U-Boot says hwrev=rg351mp ram_mb=1024 bootpart=1:1"
     onboot android uefi-log.txt "boot: starting Linux"
-    onboot android uefi-log-prev.txt "boot: starting Linux"
+    # Linux reuses the log RAM, so a start that reached it leaves no previous log.
+    noboot android uefi-log-prev.txt
 fi
 
 # 2. EL1 (PSCI over HVC), recovery.txt, no facts from U-Boot (no -append):
@@ -168,6 +172,18 @@ if want poweroff; then
     has poweroff "Powering off"
     hasnt poweroff "TESTKERNEL"
     onboot poweroff uefi-log.txt "boot: menu: Power off"
+fi
+
+# 5. A reset while still in the firmware (menu open, QEMU monitor system_reset):
+# the next start keeps that start's log and saves it as uefi-log-prev.txt.
+if want reset; then
+    mkboot "$OUT/reset.img" $K "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" || exit 2
+    run reset "virt,virtualization=on,gic-version=2" "$FACTS" --when "andr36oid boot menu" --send '\x01csystem_reset\n\x01c' \
+        --when "andr36oid boot menu" --send 6
+    has reset "Could not read BOOT/ramdisk.uimg"
+    has reset "Powering off"
+    onboot reset uefi-log-prev.txt "Could not read BOOT/ramdisk.uimg"
+    onboot reset uefi-log.txt "boot: menu: Power off"
 fi
 
 [ $fail = 0 ] && echo "== QEMU tests passed" || { echo "== QEMU tests FAILED (logs in $OUT/*.txt)"; exit 1; }

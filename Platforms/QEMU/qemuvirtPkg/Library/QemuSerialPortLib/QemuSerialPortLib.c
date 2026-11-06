@@ -28,6 +28,8 @@ typedef struct {
   UINT32    Magic;
   UINT32    DataSize;
   UINT64    Written;      // total bytes ever written; ring position = Written % DataSize
+  UINT32    HandedOff;    // set right before Linux starts, see RkLogHandoff
+  UINT32    Reserved;
 } LOG_HEADER;
 
 #define CURRENT   ((LOG_HEADER *)(UINTN)QEMU_VIRT_LOG_BASE)
@@ -49,7 +51,7 @@ RkLogStart (
   VOID
   )
 {
-  if (HeaderValid (CURRENT)) {
+  if (HeaderValid (CURRENT) && (CURRENT->HandedOff == 0)) {
     CopyMem (PREVIOUS, CURRENT, LOG_HALF);
   } else {
     ZeroMem (PREVIOUS, sizeof (LOG_HEADER));
@@ -58,6 +60,17 @@ RkLogStart (
   ZeroMem (CURRENT, sizeof (LOG_HEADER));
   CURRENT->DataSize = LOG_HALF - sizeof (LOG_HEADER);
   CURRENT->Magic    = LOG_MAGIC;
+}
+
+VOID
+EFIAPI
+RkLogHandoff (
+  IN BOOLEAN  HandedOff
+  )
+{
+  if (HeaderValid (CURRENT)) {
+    CURRENT->HandedOff = HandedOff ? 1 : 0;
+  }
 }
 
 VOID

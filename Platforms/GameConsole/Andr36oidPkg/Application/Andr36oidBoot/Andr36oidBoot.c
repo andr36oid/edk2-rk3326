@@ -26,6 +26,7 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/PcdLib.h>
 #include <Library/PrintLib.h>
+#include <Library/RkLogLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 
@@ -332,8 +333,10 @@ StartLinux (
   Say ("boot: starting Linux\n");
   BootSaveLogs (Vol->Root);
 
+  RkLogHandoff (TRUE);
   Status = LinuxBootStart (gImageHandle, &Handoff);
   // Only here if ExitBootServices failed: boot services are still up.
+  RkLogHandoff (FALSE);
   LinuxBootFree (&Handoff);
   AsciiSPrint (Message, MessageSize, "Could not start the kernel (%r)", Status);
 
