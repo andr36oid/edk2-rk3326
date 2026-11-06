@@ -93,15 +93,28 @@ EMMC_DEVICE_PATH  mEmmcDpTemplate = {
   0
 };
 
-//
-// Prioritized function list to detect card type.
-// User could add other card detection logic here.
-//
-DWMMC_CARD_TYPE_DETECT_ROUTINE  mCardTypeDetectRoutineTable[] = {
-  EmmcIdentification,
-  SdCardIdentification,
-  NULL
-};
+/**
+  Run the identification for what the slot is: an SD slot holds an SD card,
+  the eMMC slot an eMMC. Trying the other kind first only costs time.
+
+  @param[in] Private        The controller.
+
+  @retval EFI_SUCCESS       The card is identified and in transfer state.
+  @retval Others            No card, or one that would not initialise.
+
+**/
+STATIC
+EFI_STATUS
+DwMmcHcIdentify (
+  IN DW_MMC_HC_PRIVATE_DATA  *Private
+  )
+{
+  if (Private->Capability[0].CardType == EmmcCardType) {
+    return EmmcIdentification (Private);
+  }
+
+  return SdCardIdentification (Private);
+}
 
 /**
   The entry point for SD host controller driver, used to install this driver on the ImageHandle.
@@ -252,9 +265,6 @@ DwMmcHcEnumerateDevice (
   EFI_STATUS                      Status;
   BOOLEAN                         MediaPresent;
   BOOLEAN                         MediaChanged;
-  UINT32                          RoutineNum;
-  DWMMC_CARD_TYPE_DETECT_ROUTINE  *Routine;
-  UINTN                           Index;
   LIST_ENTRY                      *Link;
   LIST_ENTRY                      *NextLink;
   DW_MMC_HC_TRB                   *Trb;
@@ -262,9 +272,7 @@ DwMmcHcEnumerateDevice (
 
   Private = (DW_MMC_HC_PRIVATE_DATA *)Context;
 
-  if ((Private->Slot[0].Enable) &&
-      (Private->Slot[0].SlotType == RemovableSlot))
-  {
+  if (Private->Slot[0].Enable) {
     Status = DwMmcHcCardDetect (
                Private->DevBase,
                Private->ControllerHandle,
@@ -322,7 +330,7 @@ DwMmcHcEnumerateDevice (
       // Initialize slot and start identification process for the new
       // attached device
       //
-      Status = DwMmcHcInitHost (Private->DevBase, Private->Capability[0]);
+      Status = DwMmcHcInitHost (Private);
       if (EFI_ERROR (Status)) {
         return;
       }
@@ -336,22 +344,12 @@ DwMmcHcEnumerateDevice (
       }
 
       Private->Slot[0].MediaPresent = TRUE;
-      RoutineNum                    = sizeof (mCardTypeDetectRoutineTable) /
-                                      sizeof (DWMMC_CARD_TYPE_DETECT_ROUTINE);
-      for (Index = 0; Index < RoutineNum; Index++) {
-        Routine = &mCardTypeDetectRoutineTable[Index];
-        if (*Routine != NULL) {
-          Status = (*Routine)(Private);
-          if (!EFI_ERROR (Status)) {
-            break;
-          }
-        }
-      }
-
-      //
-      // This card doesn't get initialized correctly.
-      //
-      if (Index == RoutineNum) {
+      Status                        = DwMmcHcIdentify (Private);
+      if (EFI_ERROR (Status)) {
+        //
+        // This card doesn't get initialized correctly. Look again next time.
+        //
+        Private->Slot[0].MediaPresent = FALSE;
         return;
       }
 
@@ -608,11 +606,7 @@ DwMmcHcDriverBindingStart (
   DW_MMC_HC_PRIVATE_DATA  *Private;
 
   NON_DISCOVERABLE_DEVICE  *Dev;
-
-  DWMMC_CARD_TYPE_DETECT_ROUTINE  *Routine;
-  UINT8                           Index;
-  UINT32                          RoutineNum;
-  PLATFORM_DW_MMC_PROTOCOL        *PlatformDwMmc;
+  PLATFORM_DW_MMC_PROTOCOL  *PlatformDwMmc;
 
   Status = gBS->LocateProtocol (
                   &gPlatformDwMmcProtocolGuid,
@@ -650,30 +644,24 @@ DwMmcHcDriverBindingStart (
   InitializeListHead (&Private->Queue);
 
   Status = Private->PlatformDwMmc->GetCapability (Controller, 0, &Private->Capability[0]);
-
   if (EFI_ERROR (Status)) {
     goto Done;
   }
 
   if (Private->Capability[0].BaseClkFreq == 0) {
+    Status = EFI_UNSUPPORTED;
     goto Done;
   }
 
   DumpCapabilityReg (0, &Private->Capability[0]);
 
-  Status = DwMmcHcCardDetect (Private->DevBase, Controller, 0, &Private->Slot[0].MediaPresent);
+  DwMmcHcAllocateDma (Private);
 
-  //
-  // Initialize slot and start identification process for the new attached device
-  //
-  Status = DwMmcHcInitHost (Private->DevBase, Private->Capability[0]);
+  Status = DwMmcHcInitHost (Private);
   if (EFI_ERROR (Status)) {
     goto Done;
   }
 
-  //
-  // Reset HC
-  //
   Status = DwMmcHcReset (Private->DevBase, Private->Capability[0]);
   if (EFI_ERROR (Status)) {
     goto Done;
@@ -683,14 +671,16 @@ DwMmcHcDriverBindingStart (
   Private->Slot[0].CardType = Private->Capability[0].CardType;
   Private->Slot[0].Enable   = TRUE;
 
-  RoutineNum = sizeof (mCardTypeDetectRoutineTable) / sizeof (DWMMC_CARD_TYPE_DETECT_ROUTINE);
-  for (Index = 0; Index < RoutineNum; Index++) {
-    Routine = &mCardTypeDetectRoutineTable[Index];
-    if (*Routine != NULL) {
-      Status = (*Routine)(Private);
-      if (!EFI_ERROR (Status)) {
-        break;
-      }
+  //
+  // A card that is there but won't initialise is not an error for the
+  // driver: the slot is looked at again by DwMmcHcEnumerateDevice.
+  //
+  DwMmcHcCardDetect (Private->DevBase, Controller, 0, &Private->Slot[0].MediaPresent);
+  if (Private->Slot[0].MediaPresent) {
+    Status = DwMmcHcIdentify (Private);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_WARN, "DwMmcHcDriverBindingStart: card not initialised: %r\n", Status));
+      Private->Slot[0].MediaPresent = FALSE;
     }
   }
 
@@ -752,8 +742,17 @@ Done:
     }
 
     if (Private != NULL) {
+      DwMmcHcShutdown (Private);
+      DwMmcHcFreeDma (Private);
       FreePool (Private);
     }
+
+    gBS->CloseProtocol (
+           Controller,
+           &gEdkiiNonDiscoverableDeviceProtocolGuid,
+           This->DriverBindingHandle,
+           Controller
+           );
   }
 
   return Status;
@@ -864,9 +863,12 @@ DwMmcHcDriverBindingStop (
     return Status;
   }
 
+  DwMmcHcShutdown (Private);
+  DwMmcHcFreeDma (Private);
+
   gBS->CloseProtocol (
          Controller,
-         &gEfiPciIoProtocolGuid,
+         &gEdkiiNonDiscoverableDeviceProtocolGuid,
          This->DriverBindingHandle,
          Controller
          );
@@ -948,6 +950,10 @@ DwMmcPassThruPassThru (
   }
 
   if ((Packet->InDataBuffer == NULL) && (Packet->InTransferLength != 0)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Slot >= DW_MMC_HC_MAX_SLOT) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -1280,6 +1286,10 @@ DwMmcPassThruResetDevice (
   EFI_TPL                 OldTpl;
 
   if (This == NULL) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  if (Slot >= DW_MMC_HC_MAX_SLOT) {
     return EFI_INVALID_PARAMETER;
   }
 

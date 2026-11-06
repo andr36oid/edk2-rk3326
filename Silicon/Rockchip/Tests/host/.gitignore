@@ -8,3 +8,4 @@ test_cru
 test_clock
 test_board
 dump_clk
+test_dwmmc

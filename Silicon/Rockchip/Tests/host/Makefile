@@ -23,12 +23,12 @@ CFLAGS = -std=gnu11 -O1 -g -fshort-wchar -funsigned-char -fno-strict-aliasing -W
          -I$(RK)/RK3326Pkg/Library/GpioLib -I$(RK)/RK3326Pkg/Library/CruLib \
          -I$(RK)/RK3326Pkg/Library/RkI2cLib -I$(RK)/RK3326Pkg/Library/RkClockInitLib -I$(R36S)/Drivers/BoardInitDxe -I$(RK)/RockchipPkg/Library/RkPmicLibRk817 \
          -I$(R36S)/Library/BootKeysLib -I$(R36S)/Library/KeypadDeviceLib \
-         -Imock
+         -Imock -I$(RK)/RockchipPkg/Drivers/DesignWare/DwMmcHcDxe
 
-TESTS = test_math test_i2c test_cru test_pmic test_keys dump_keys test_clock test_board dump_clk
+TESTS = test_math test_i2c test_cru test_dwmmc test_pmic test_keys dump_keys test_clock test_board dump_clk
 
 all: $(TESTS)
-	@for t in test_math test_i2c test_cru test_clock test_board; do echo "== $$t"; ./$$t || exit 1; done
+	@for t in test_math test_i2c test_cru test_dwmmc test_clock test_board; do echo "== $$t"; ./$$t || exit 1; done
 	@for a in 166 514 300 fail; do echo "== test_keys $$a"; ./test_keys $$a || exit 1; done
 	@for m in --bad-id --no-ack --init-fail; do echo "== test_pmic $$m"; ./test_pmic $$m || exit 1; done
 	@echo "== test_pmic with $(DTB)"; if [ -f $(DTB) ]; then ./test_pmic $(DTB) || exit 1; else echo "(no DTB, skipped)"; fi
@@ -47,6 +47,9 @@ test_math: test_math.c $(COMMON)
 
 test_cru: test_cru.c $(COMMON) $(RK)/RK3326Pkg/Library/CruLib/CruLib.c
 	$(CC) $(CFLAGS) -o $@ $^
+
+test_dwmmc: test_dwmmc.c $(COMMON) $(RK)/RockchipPkg/Drivers/DesignWare/DwMmcHcDxe/DwMmcMath.h
+	$(CC) $(CFLAGS) -o $@ test_dwmmc.c $(COMMON)
 
 test_i2c: test_i2c.c $(COMMON) $(RK)/RK3326Pkg/Library/RkI2cLib/RkI2cLib.c
 	$(CC) $(CFLAGS) -o $@ $^
