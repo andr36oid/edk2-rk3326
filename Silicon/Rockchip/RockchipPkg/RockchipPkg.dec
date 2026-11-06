@@ -22,6 +22,7 @@
   RkSaradcLib|Include/Library/RkSaradcLib.h
   RkClockInitLib|Include/Library/RkClockInitLib.h
   RkLogLib|Include/Library/RkLogLib.h
+  RkUsbPlatformLib|Include/Library/RkUsbPlatformLib.h
 
 [Guids.common]
   gRockchipPkgTokenSpaceGuid        = { 0x99a14446, 0xaad7, 0xe460, { 0xb4, 0xe5, 0x1f, 0x79, 0xaa, 0xa4, 0x93, 0xfd } }
@@ -30,6 +31,11 @@
 
 [Protocols]
   gPlatformDwMmcProtocolGuid        = { 0x1d6dfde5, 0x76a7, 0x4404, { 0x85, 0x74, 0x7a, 0xdf, 0x1a, 0x8a, 0xa2, 0x0d } }
+
+[Protocols]
+  # Marker on the USB host controller's handle, so the boot manager can connect
+  # it at every start (the platform has no PCI bus for BDS to find USB on)
+  gRkUsbHostControllerGuid          = { 0x6f0d4b52, 0x2c91, 0x4a3e, { 0x8d, 0x07, 0xb5, 0x1e, 0x93, 0x6a, 0xc4, 0x28 } }
 
 [PcdsFixedAtBuild.common]
   gRockchipPkgTokenSpaceGuid.PcdRkSdmmcCardDetectBroken|FALSE|BOOLEAN|0x40000031

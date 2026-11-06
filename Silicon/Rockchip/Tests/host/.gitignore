@@ -10,3 +10,5 @@ test_board
 dump_clk
 test_dwmmc
 test_power
+test_usb
+dump_usb

@@ -31,3 +31,5 @@ INT32 EFIAPI FdtNextSubnode (IN CONST VOID *Fdt, IN INT32 Offset) { return fdt_n
 
 INT32 EFIAPI FdtNextNode (IN CONST VOID *Fdt, IN INT32 Offset, IN INT32 *Depth) { return fdt_next_node (Fdt, Offset, Depth); }
 INT32 EFIAPI FdtNodeOffsetByPhandle (IN CONST VOID *Fdt, IN UINT32 Phandle) { return fdt_node_offset_by_phandle (Fdt, Phandle); }
+
+INT32 EFIAPI FdtCheckHeader (IN CONST VOID *Fdt) { return fdt_check_header (Fdt); }
