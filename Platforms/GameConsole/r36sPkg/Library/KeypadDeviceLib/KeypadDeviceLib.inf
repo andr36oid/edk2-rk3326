@@ -1,0 +1,21 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = KeypadDeviceLibR36s
+  FILE_GUID                      = C47E19A8-5B03-4D6F-8E21-A9F7D3068B15
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = KeypadDeviceLib
+
+[Sources]
+  KeypadDeviceLib.c
+  KeyRepeat.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Andr36oidPkg/Andr36oidPkg.dec
+  SiliciumPkg/SiliciumPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  BootKeysLib

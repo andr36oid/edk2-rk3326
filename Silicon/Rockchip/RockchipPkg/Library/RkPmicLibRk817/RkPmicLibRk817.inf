@@ -1,0 +1,22 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = RkPmicLibRk817
+  FILE_GUID                      = 1D8B5E73-4A26-4F90-B7C1-92E0A6D3F458
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = RkPmicLib
+
+[Sources]
+  RkPmicLibRk817.c
+  Rk817Regs.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  FdtLib
+  TimerLib
+  RkI2cLib

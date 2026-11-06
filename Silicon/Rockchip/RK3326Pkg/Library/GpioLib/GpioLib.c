@@ -1,6 +1,6 @@
 /** @file
  *
- *  RK3566/RK3568 GPIO Library.
+ *  RK3326 (PX30) GPIO Library.
  * 
  *  Copyright (c) 2021, Jared McNeill <jmcneill@invisible.ca>
  *
@@ -14,57 +14,41 @@
 #include <Library/IoLib.h>
 #include <Library/GpioLib.h>
 
-#define GRF_GPIO_IOMUX_REG(Pin)         (((Pin) / 4) * 4)
-#define GRF_GPIO_IOMUX_SHIFT(Pin)       (((Pin) % 4) * 4)
-#define GRF_GPIO_IOMUX_MASK(Pin)        (0xFU << (GRF_GPIO_IOMUX_SHIFT(Pin) + 16))
+#include "GpioRegs.h"
 
-#define GRF_GPIO_P_REG(Pin)             (((Pin) / 8) * 4)
-#define GRF_GPIO_P_SHIFT(Pin)           (((Pin) % 8) * 2)
-#define GRF_GPIO_P_MASK(Pin)            (0x3U << (GRF_GPIO_P_SHIFT (Pin) + 16))
+STATIC
+VOID
+GrfWriteMasked (
+  IN UINTN   Reg,
+  IN UINT32  Mask,
+  IN UINT32  Value
+  )
+{
+  //
+  // GRF registers take the write enable of each bit in the upper half.
+  //
+  MmioWrite32 (Reg, (Mask << 16) | (Value & Mask));
+}
 
-#define GRF_GPIO_DS_REG(Pin)            (((Pin) / 2) * 4)
-#define GRF_GPIO_DS_SHIFT(Pin)          (((Pin) % 2) * 8)
-#define GRF_GPIO_DS_MASK(Pin)           (0xFFU << (GRF_GPIO_DS_SHIFT (Pin) + 16))
+STATIC
+VOID
+GpioRmw (
+  IN UINTN   Reg,
+  IN UINT32  Bit,
+  IN BOOLEAN Set
+  )
+{
+  UINT32  Value;
 
-#define GRF_GPIO_IE_REG(Pin)            (((Pin) / 8) * 4)
-#define GRF_GPIO_IE_SHIFT(Pin)          ((Pin) % 8)
-#define GRF_GPIO_IE_MASK(Pin)           (0x1U << (GRF_GPIO_IE_SHIFT (Pin) + 16))
+  Value = MmioRead32 (Reg);
+  if (Set) {
+    Value |= Bit;
+  } else {
+    Value &= ~Bit;
+  }
 
-#define GPIO_SWPORT_DR(Pin)             ((Pin) < 16 ? 0x0000 : 0x0004)
-#define GPIO_SWPORT_DDR(Pin)            ((Pin) < 16 ? 0x0008 : 0x000C)
-
-#define GPIO_EXT_PORT		0x50
-
-#define GPIO_WRITE_MASK(Pin)            (1U << (((Pin) % 16) + 16))
-#define GPIO_VALUE_MASK(Pin, Value)     ((UINT32)Value << ((Pin) % 16))
-
-#define GPIO_NGROUPS                    4
-
-typedef struct {
-  EFI_PHYSICAL_ADDRESS  IOMUX;
-  EFI_PHYSICAL_ADDRESS  P;
-  EFI_PHYSICAL_ADDRESS  IE;
-  EFI_PHYSICAL_ADDRESS  DS;
-} GPIO_PINMUX_REGS;
-
-STATIC GPIO_PINMUX_REGS mPinmuxReg[GPIO_NGROUPS] = {
-#define REG_BASE(Base, IomuxOff, POff, IeOff, DsOff)   \
-  { .IOMUX = (Base) + (IomuxOff), .P = (Base) + (POff), .IE = (Base) + (IeOff), .DS = (Base) + (DsOff) }
-
-  /* GPIO0 (PMU_GRF) */
-  [0] = REG_BASE(PMU_GRF, 0x0000, 0x0010, 0x0030, 0x0020),
-
-  /* GPIO1 (SYS_GRF) */
-  [1] = REG_BASE(SYS_GRF, 0x0000, 0x0060, 0x00C0, 0x00F0),
-
-  /* GPIO2 (SYS_GRF) */
-  [2] = REG_BASE(SYS_GRF, 0x0020, 0x0070, 0x00D0, 0x0100),
-
-  /* GPIO3 (SYS_GRF) */
-  [3] = REG_BASE(SYS_GRF, 0x0040, 0x0080, 0x00E0, 0x0110),
-
-#undef REG_BASE
-};
+  MmioWrite32 (Reg, Value);
+}
 
 VOID
 GpioPinSetDirection (
@@ -73,8 +57,8 @@ GpioPinSetDirection (
   IN GPIO_PIN_DIRECTION Direction
   )
 {
-    MmioWrite32 (GPIO_BASE (Group) + GPIO_SWPORT_DDR (Pin),
-                 GPIO_WRITE_MASK (Pin) | GPIO_VALUE_MASK (Pin, Direction));
+  ASSERT (Group < GPIO_NGROUPS);
+  GpioRmw (GPIO_BASE (Group) + GPIO_SWPORT_DDR, 1U << Pin, Direction == GPIO_PIN_OUTPUT);
 }
 
 VOID
@@ -84,8 +68,18 @@ GpioPinWrite (
   IN BOOLEAN Value
   )
 {
-    MmioWrite32 (GPIO_BASE (Group) + GPIO_SWPORT_DR (Pin),
-                 GPIO_WRITE_MASK (Pin) | GPIO_VALUE_MASK (Pin, Value));
+  ASSERT (Group < GPIO_NGROUPS);
+  GpioRmw (GPIO_BASE (Group) + GPIO_SWPORT_DR, 1U << Pin, Value);
+}
+
+BOOLEAN
+GpioPinGetLevel (
+  IN UINT8 Group,
+  IN UINT8 Pin
+  )
+{
+  ASSERT (Group < GPIO_NGROUPS);
+  return ((MmioRead32 (GPIO_BASE (Group) + GPIO_EXT_PORT) >> Pin) & 1) != 0;
 }
 
 BOOLEAN
@@ -94,11 +88,11 @@ GpioPinRead (
   IN UINT8 Pin
   )
 {
-    CONST UINT32 Value = MmioRead32 (GPIO_BASE (Group) + GPIO_EXT_PORT);
-    //DEBUG((EFI_D_INFO | EFI_D_LOAD, "Read pin value, %d\n", (!((Value >> Pin) & 1))));
-    //DEBUG((EFI_D_INFO | EFI_D_LOAD, "Pin %u.%u = %u\n", Group, Pin, (Value & GPIO_VALUE_MASK(Pin,1)) != 0));
-
-    return !((Value >> Pin) & 1);
+  //
+  // Kept inverted (TRUE = pad low) because RkSdmmcPlatformLib was written
+  // against it. New code should use GpioPinGetLevel.
+  //
+  return !GpioPinGetLevel (Group, Pin);
 }
 
 VOID
@@ -108,14 +102,14 @@ GpioPinSetFunction (
   IN UINT8 Function
   )
 {
+  GPIO_REG_FIELD  F;
+
   ASSERT (Group < GPIO_NGROUPS);
+  GpioIomuxField (Group, Pin, &F);
 
-  CONST EFI_PHYSICAL_ADDRESS Reg = mPinmuxReg[Group].IOMUX + GRF_GPIO_IOMUX_REG (Pin);
-  CONST UINT32 Value = GRF_GPIO_IOMUX_MASK (Pin) | ((UINT32)Function << GRF_GPIO_IOMUX_SHIFT (Pin));
+  DEBUG ((DEBUG_INFO, "GPIO: SetFunction %u %02X %04X      0x%lX bit %u\n", Group, Pin, Function, F.Reg, F.Shift));
 
-  DEBUG ((DEBUG_INFO, "GPIO: SetFunction %u %02X %04X      0x%lX = 0x%08X\n", Group, Pin, Function, Reg, Value));
-
-  MmioWrite32 (Reg, Value);
+  GrfWriteMasked (F.Reg, F.Mask << F.Shift, ((UINT32)Function & F.Mask) << F.Shift);
 }
 
 VOID
@@ -125,18 +119,31 @@ GpioPinSetPull (
   IN GPIO_PIN_PULL Pull
   )
 {
+  GPIO_REG_FIELD  F;
+
   ASSERT (Group < GPIO_NGROUPS);
+  GpioPullField (Group, Pin, &F);
 
-  //if (Group == 0 && Pin >= GPIO_PIN_PD3 && Pin <= GPIO_PIN_PD6 && Pull == GPIO_PIN_PULL_UP) {
-  //  Pull = 3;
-  //}
+  DEBUG ((DEBUG_INFO, "GPIO: SetPull     %u %02X %04X      0x%lX bit %u\n", Group, Pin, Pull, F.Reg, F.Shift));
 
-  CONST EFI_PHYSICAL_ADDRESS Reg = mPinmuxReg[Group].P + GRF_GPIO_P_REG (Pin);
-  CONST UINT32 Value = GRF_GPIO_P_MASK (Pin) | ((UINT32)Pull << GRF_GPIO_P_SHIFT (Pin));
+  GrfWriteMasked (F.Reg, F.Mask << F.Shift, ((UINT32)Pull & F.Mask) << F.Shift);
+}
 
-  DEBUG ((DEBUG_INFO, "GPIO: SetPull     %u %02X %04X      0x%lX = 0x%08X\n", Group, Pin, Pull, Reg, Value));
+VOID
+GpioPinSetDriveLevel (
+  IN UINT8 Group,
+  IN UINT8 Pin,
+  IN UINT8 Level
+  )
+{
+  GPIO_REG_FIELD  F;
 
-  MmioWrite32 (Reg, Value);
+  ASSERT (Group < GPIO_NGROUPS);
+  GpioDriveField (Group, Pin, &F);
+
+  DEBUG ((DEBUG_INFO, "GPIO: SetDrive    %u %02X %04X      0x%lX bit %u\n", Group, Pin, Level, F.Reg, F.Shift));
+
+  GrfWriteMasked (F.Reg, F.Mask << F.Shift, ((UINT32)Level & F.Mask) << F.Shift);
 }
 
 VOID
@@ -146,15 +153,8 @@ GpioPinSetDrive (
   IN GPIO_PIN_DRIVE Drive
   )
 {
-  ASSERT (Group < GPIO_NGROUPS);
   ASSERT (Drive != GPIO_PIN_DRIVE_DEFAULT);
-
-  CONST EFI_PHYSICAL_ADDRESS Reg = mPinmuxReg[Group].DS + GRF_GPIO_DS_REG (Pin);
-  CONST UINT32 Value = GRF_GPIO_DS_MASK (Pin) | ((UINT32)Drive << GRF_GPIO_DS_SHIFT (Pin));
-
-  DEBUG ((DEBUG_INFO, "GPIO: SetDrive    %u %02X %04X      0x%lX = 0x%08X\n", Group, Pin, Drive, Reg, Value));
-
-  MmioWrite32 (Reg, Value);
+  GpioPinSetDriveLevel (Group, Pin, GpioDriveEnumToLevel ((UINT32)Drive));
 }
 
 VOID
@@ -164,15 +164,18 @@ GpioPinSetInput (
   IN GPIO_PIN_INPUT_ENABLE InputEnable
   )
 {
+  GPIO_REG_FIELD  F;
+
   ASSERT (Group < GPIO_NGROUPS);
   ASSERT (InputEnable != GPIO_PIN_INPUT_DEFAULT);
+  GpioSchmittField (Group, Pin, &F);
 
-  CONST EFI_PHYSICAL_ADDRESS Reg = mPinmuxReg[Group].IE + GRF_GPIO_IE_REG (Pin);
-  CONST UINT32 Value = GRF_GPIO_IE_MASK (Pin) | ((UINT32)InputEnable << GRF_GPIO_IE_SHIFT (Pin));
+  DEBUG ((DEBUG_INFO, "GPIO: SetInput    %u %02X %04X      0x%lX bit %u\n", Group, Pin, InputEnable, F.Reg, F.Shift));
 
-  DEBUG ((DEBUG_INFO, "GPIO: SetInput    %u %02X %04X      0x%lX = 0x%08X\n", Group, Pin, InputEnable, Reg, Value));
-
-  MmioWrite32 (Reg, Value);
+  //
+  // PX30 only has a Schmitt trigger switch here, no separate input enable.
+  //
+  GrfWriteMasked (F.Reg, F.Mask << F.Shift, (InputEnable != GPIO_PIN_INPUT_DISABLE ? 1U : 0U) << F.Shift);
 }
 
 VOID

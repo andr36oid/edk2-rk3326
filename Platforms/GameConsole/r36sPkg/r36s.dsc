@@ -40,7 +40,13 @@
 
 [LibraryClasses]
   MemoryMapLib|r36sPkg/Library/MemoryMapLib/MemoryMapLib.inf
-  BootKeysLib|Andr36oidPkg/Library/BootKeysLibNull/BootKeysLibNull.inf
+  BootKeysLib|r36sPkg/Library/BootKeysLib/BootKeysLib.inf
+  KeypadDeviceLib|r36sPkg/Library/KeypadDeviceLib/KeypadDeviceLib.inf
 
 [Components]
+  # The null instance is not mapped, built here so it keeps compiling
   Andr36oidPkg/Library/BootKeysLibNull/BootKeysLibNull.inf
+
+  # d-pad and A/B as text input
+  SiliciumPkg/Drivers/KeypadDxe/KeypadDxe.inf
+  SiliciumPkg/Drivers/KeypadDeviceDxe/KeypadDeviceDxe.inf
