@@ -27,7 +27,25 @@ static void test_start (void)
     { "low, both, cold start",      ST (1, 3300, 1, 1, 1, 0),           PowerStartCharge },
     { "good, both, cold start",     ST (1, 3900, 1, 1, 1, 0),           PowerStartCharge },
     { "good, both, reboot (NORMAL)",ST (1, 3900, 1, 1, 1, 0x5242C300),  PowerStartContinue },
-    { "both, other reboot reason",  ST (1, 3900, 1, 1, 1, 0x5242C303),  PowerStartCharge },
+    // reasons U-Boot writes NORMAL back for before its charge screen looks
+    { "both, reboot loader",        ST (1, 3900, 1, 1, 1, 0x5242C301),  PowerStartContinue },
+    { "both, reboot recovery",      ST (1, 3900, 1, 1, 1, 0x5242C303),  PowerStartContinue },
+    { "both, reboot fastboot",      ST (1, 3900, 1, 1, 1, 0x5242C309),  PowerStartContinue },
+    { "both, reboot charging",      ST (1, 3900, 1, 1, 1, 0x5242C30B),  PowerStartContinue },
+    { "both, reboot ums",           ST (1, 3900, 1, 1, 1, 0x5242C30C),  PowerStartContinue },
+    // reasons it keeps: the charge screen can show
+    { "both, panic",                ST (1, 3900, 1, 1, 1, 0x5242C307),  PowerStartCharge },
+    { "both, watchdog",             ST (1, 3900, 1, 1, 1, 0x5242C308),  PowerStartCharge },
+    { "both, unknown reason",       ST (1, 3900, 1, 1, 1, 0x5242C305),  PowerStartCharge },
+    { "both, garbage",              ST (1, 3900, 1, 1, 1, 0xDEADBEEF),  PowerStartCharge },
+    { "low, no charger, recovery",  ST (1, 3300, 1, 0, 0, 0x5242C303),  PowerStartLowBattery },
+    // extreme low (< 3105 mV) with a charger: U-Boot charges first, after a reboot too
+    { "reboot, both, 3104",         ST (1, 3104, 1, 1, 1, 0x5242C300),  PowerStartChargeThenBoot },
+    { "recovery, both, 3000",       ST (1, 3000, 1, 1, 1, 0x5242C303),  PowerStartChargeThenBoot },
+    { "reboot, both, 3105",         ST (1, 3105, 1, 1, 1, 0x5242C300),  PowerStartContinue },
+    { "reboot, both, mV unknown",   ST (1, 0,    1, 1, 1, 0x5242C300),  PowerStartContinue },
+    { "cold, both, 3000",           ST (1, 3000, 1, 1, 1, 0),           PowerStartCharge },
+    { "reboot, pmic plug only, 3000", ST (1, 3000, 1, 0, 1, 0x5242C300), PowerStartContinue },
     { "both, no battery",           ST (1, 0,    0, 1, 1, 0),           PowerStartContinue },
     { "voltage unknown, no charger",ST (1, 0,    1, 0, 0, 0),           PowerStartContinue },
     { "pmic dead",                  ST (0, 3000, 0, 0, 0, 0),           PowerStartContinue },
@@ -63,10 +81,11 @@ static void test_percent (void)
 // One scripted tick: time in ms, battery mV, plug, key down.
 typedef struct { UINT64 t; UINT32 mv; int plug; int key; int tap; POWER_ACTION act; int redraw; int screen; } STEP;
 
-static void run (const char *name, const STEP *s, int n)
+static void run2 (const char *name, const STEP *s, int n, int boot_when_charged)
 {
   POWER_CHARGE_STATE st = {0};
   POWER_CHARGE_OUT out;
+  st.BootWhenCharged = boot_when_charged;
   for (int i = 0; i < n; i++) {
     PowerChargeStep (&st, s[i].t, s[i].mv, s[i].plug, s[i].key, s[i].tap, &out);
     if (out.Action != s[i].act || (s[i].redraw >= 0 && out.Redraw != s[i].redraw) || (s[i].screen >= 0 && st.ScreenOn != s[i].screen)) {
@@ -77,6 +96,11 @@ static void run (const char *name, const STEP *s, int n)
     if (s[i].redraw >= 0) CHECK_EQ (out.Redraw, s[i].redraw);
     if (s[i].screen >= 0) CHECK_EQ (st.ScreenOn, s[i].screen);
   }
+}
+
+static void run (const char *name, const STEP *s, int n)
+{
+  run2 (name, s, n, 0);
 }
 
 #define N PowerActNone
@@ -172,6 +196,32 @@ static void test_charge (void)
     PowerChargeStep (&st, 100, 3800, 1, 1, 0, &out);
     PowerChargeStep (&st, 2200, 3800, 1, 1, 0, &out);      // long press -> boot
     CHECK_EQ (out.Action, GO);
+  }
+  // 9. Reboot at extreme low with a charger: keys ignored, screen off after 5 s,
+  //    boots by itself once the battery is above 3105 mV
+  {
+    STEP s[] = {
+      {     0, 3000, 1, 0, 0, N, 1, 1 },
+      {  2000, 3000, 1, 1, 0, N, 0, 1 },     // key ignored
+      {  4500, 3000, 1, 1, 0, N, 0, 1 },     // held 2.5 s: still ignored
+      {  5000, 3050, 1, 0, 0, N, 1, 0 },     // screen off after 5 s
+      { 60000, 3104, 1, 0, 0, N, 0, 0 },
+      { 60050, 3105, 1, 0, 0, GO, -1, -1 },  // above: boot
+    };
+    run2 ("reboot at extreme low", s, 6, 1);
+    STEP t[] = {
+      { 0, 3200, 1, 0, 0, GO, -1, -1 },      // above by the first reading: boot at once
+    };
+    run2 ("reboot, above at the first reading", t, 1, 1);
+    STEP u[] = {
+      {    0, 3000, 1, 0, 0, N,   1, 1 },
+      { 1000, 3000, 0, 0, 0, OFF, -1, -1 },  // charger pulled: off, as U-Boot does
+    };
+    run2 ("reboot at extreme low, unplugged", u, 2, 1);
+    STEP v[] = {
+      {    0, 0, 1, 0, 0, GO, -1, -1 },      // voltage unreadable: not extreme, boot
+    };
+    run2 ("reboot, voltage unknown", v, 1, 1);
   }
 }
 

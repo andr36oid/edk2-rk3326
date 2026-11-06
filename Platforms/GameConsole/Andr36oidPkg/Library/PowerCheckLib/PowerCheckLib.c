@@ -254,7 +254,7 @@ LowBatteryScreen (
 STATIC
 POWER_CHECK_RESULT
 ChargeScreen (
-  VOID
+  IN BOOLEAN  BootWhenCharged
   )
 {
   POWER_CHARGE_STATE  S;
@@ -268,6 +268,7 @@ ChargeScreen (
   UINT32              Errors;
 
   ZeroMem (&S, sizeof (S));
+  S.BootWhenCharged = BootWhenCharged;
   Now      = 0;
   Mv       = 0;
   Charging = TRUE;
@@ -299,7 +300,7 @@ ChargeScreen (
       }
 
       if (Out.Action == PowerActContinueBoot) {
-        DEBUG ((DEBUG_INFO, "PowerCheck: power key held, booting (%u mV)\n", Mv));
+        DEBUG ((DEBUG_INFO, "PowerCheck: booting (%u mV)\n", Mv));
         Black ();
         return PowerCheckContinue;
       }
@@ -342,6 +343,7 @@ PowerCheck (
   }
 
   CruEnableGpioClocks ();
+  GpioPinSetFunction (DC_DET_BANK, DC_DET_PIN, 0);
   GpioPinSetDirection (DC_DET_BANK, DC_DET_PIN, GPIO_PIN_INPUT);
 
   ZeroMem (&In, sizeof (In));
@@ -356,6 +358,10 @@ PowerCheck (
 
   In.DcPin       = GpioPinGetLevel (DC_DET_BANK, DC_DET_PIN);
   In.BootModeReg = MmioRead32 (BOOT_MODE_REG);
+  if (PowerBootModeIsReboot (In.BootModeReg) && (In.BootModeReg != POWER_BOOT_MODE_NORMAL)) {
+    // Used up, like U-Boot's rockchip_get_boot_mode: a later reset must not see it again.
+    MmioWrite32 (BOOT_MODE_REG, POWER_BOOT_MODE_NORMAL);
+  }
   DEBUG ((
     DEBUG_INFO,
     "PowerCheck: pmic %d, %u mV, battery %d, dc pin %d, plug %d, boot mode reg 0x%X\n",
@@ -374,7 +380,10 @@ PowerCheck (
       break;
     case PowerStartCharge:
       DEBUG ((DEBUG_INFO, "PowerCheck: charger in, charge screen\n"));
-      return ChargeScreen ();
+      return ChargeScreen (FALSE);
+    case PowerStartChargeThenBoot:
+      DEBUG ((DEBUG_INFO, "PowerCheck: extreme low battery after a reboot, charging first\n"));
+      return ChargeScreen (TRUE);
     default:
       break;
   }

@@ -31,15 +31,45 @@ typedef struct {
 typedef enum {
   PowerStartContinue,
   PowerStartLowBattery,
-  PowerStartCharge
+  PowerStartCharge,
+  PowerStartChargeThenBoot     // extreme low after a reboot: charge, then boot by itself
 } POWER_START;
+
+//
+// The reboot reasons U-Boot treats as "normal" for the charge screen. Its
+// setup_boot_mode reads the register first (rockchip_get_boot_mode) and writes
+// NORMAL back for every reason except panic, watchdog and unknown values; the
+// charge screen reads it again later and skips on NORMAL. So a reboot to
+// recovery, fastboot, loader, UMS or "charging" starts like a plain reboot,
+// and only a cold start (0), a panic, a watchdog reset or an unknown value can
+// show the charge screen. The caller writes NORMAL back for these, as U-Boot does.
+//
+STATIC
+BOOLEAN
+PowerBootModeIsReboot (
+  IN UINT32  Reg
+  )
+{
+  switch (Reg) {
+    case POWER_BOOT_MODE_NORMAL + 0:      // normal
+    case POWER_BOOT_MODE_NORMAL + 1:      // loader (rockusb)
+    case POWER_BOOT_MODE_NORMAL + 3:      // recovery
+    case POWER_BOOT_MODE_NORMAL + 9:      // fastboot
+    case POWER_BOOT_MODE_NORMAL + 11:     // charging
+    case POWER_BOOT_MODE_NORMAL + 12:     // ums
+      return TRUE;
+    default:
+      return FALSE;
+  }
+}
 
 //
 // board_check_power first (low battery without a charger), then the charge
 // screen (charge_animation_show): needs the DC jack and the PMIC both saying a
-// charger is in, a battery, and a boot mode that is not "normal" (a reboot from
-// Linux writes NORMAL; a cold start leaves the register 0, which U-Boot's
-// rockchip_get_boot_mode reads as undefined and so does show the screen).
+// charger is in, a battery, and no reboot reason U-Boot clears (see above; a
+// cold start leaves the register 0, which U-Boot reads as undefined and so
+// does show the screen). Before it looks at the reason, U-Boot charges a
+// battery below 3105 mV (charge_extrem_low_power), after a reboot too.
 // Deliberate difference: a PMIC plug-in also counts as a charger for the
 // low-battery check, so a console that is plugged in is never shut down.
 //
@@ -60,8 +90,14 @@ PowerStartDecide (
     return PowerStartLowBattery;
   }
 
-  if (In->DcPin && In->Plug && In->BatteryPresent && (In->BootModeReg != POWER_BOOT_MODE_NORMAL)) {
-    return PowerStartCharge;
+  if (In->DcPin && In->Plug && In->BatteryPresent) {
+    if (!PowerBootModeIsReboot (In->BootModeReg)) {
+      return PowerStartCharge;
+    }
+
+    if ((In->BatteryMv != 0) && (In->BatteryMv < POWER_EXTREME_LOW_MV)) {
+      return PowerStartChargeThenBoot;
+    }
   }
 
   return PowerStartContinue;
@@ -105,6 +141,8 @@ PowerPercentFromMv (
 // is under the 3105 mV extreme-low limit where the keys do nothing anyway.)
 // Below 3105 mV ("extreme low") the keys do nothing, the screen goes off after
 // 5 s and stays off until the battery is above that. Charger gone: power off.
+// BootWhenCharged (set by the caller, for PowerStartChargeThenBoot): boot as
+// soon as the battery is not extreme low, as U-Boot does after a reboot.
 //
 typedef enum {
   PowerActNone,
@@ -120,6 +158,7 @@ typedef struct {
   BOOLEAN  LongHandled;
   UINT64   ScreenSince;    // ms: when the screen last came on
   UINT64   KeySince;
+  BOOLEAN  BootWhenCharged;
 } POWER_CHARGE_STATE;
 
 typedef struct {
@@ -167,6 +206,11 @@ PowerChargeStep (
       S->ScreenSince = NowMs;
       Out->Redraw    = TRUE;
     }
+  }
+
+  if (S->BootWhenCharged && !Extreme) {
+    Out->Action = PowerActContinueBoot;
+    return;
   }
 
   if (S->Extreme) {
