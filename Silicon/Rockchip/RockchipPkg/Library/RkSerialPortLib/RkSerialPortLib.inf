@@ -1,0 +1,29 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = RkSerialPortLib
+  FILE_GUID                      = 1E8D3A57-6C2F-4B90-A4E1-9F07B3C5D2A8
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = SerialPortLib
+  LIBRARY_CLASS                  = RkLogLib
+
+[Sources]
+  RkSerialPortLib.c
+  Font.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  IoLib
+  PcdLib
+  RkPlatformInfoLib
+
+[FeaturePcd]
+  gRockchipPkgTokenSpaceGuid.PcdRkLogScreen
+
+[FixedPcd]
+  gRockchipPkgTokenSpaceGuid.PcdRkLogUart

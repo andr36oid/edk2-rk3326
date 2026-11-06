@@ -1,0 +1,32 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = PlatformPeiLib
+  FILE_GUID                      = 8C1F7B2A-5E3D-4A6B-9F0E-2D4C6B8A1E33
+  MODULE_TYPE                    = SEC
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PlatformPeiLib
+
+[Sources]
+  PlatformPeiLib.c
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  HobLib
+  PcdLib
+  RkPlatformInfoLib
+
+[Guids]
+  gRkPlatformInfoHobGuid
+
+[FixedPcd]
+  gArmTokenSpaceGuid.PcdFvBaseAddress
+  gArmTokenSpaceGuid.PcdFvSize

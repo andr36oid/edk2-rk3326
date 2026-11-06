@@ -1,0 +1,17 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = RkPmicLibNull
+  FILE_GUID                      = 7B4E2C19-5D8A-4F31-9C06-E2A84D1B3F65
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = RkPmicLib
+
+[Sources]
+  RkPmicLibNull.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib

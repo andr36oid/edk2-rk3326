@@ -1,0 +1,17 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = RkPlatformInfoLib
+  FILE_GUID                      = 5B0B3E4C-7D7A-4C55-9C1B-3E2F86B5A1D1
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = RkPlatformInfoLib
+
+[Sources]
+  RkPlatformInfoLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  IoLib

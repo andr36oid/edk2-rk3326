@@ -1,0 +1,20 @@
+##
+#  andr36oid boot logic shared by every GameConsole device: the boot.ini
+#  decisions, the boot menu, the Linux handoff.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  DEC_SPECIFICATION              = 0x0001001A
+  PACKAGE_NAME                   = Andr36oidPkg
+  PACKAGE_GUID                   = 6D1E2A90-3C4B-4F57-8A61-0B9E7C2D5F18
+  PACKAGE_VERSION                = 0.1
+
+[Includes]
+  Include
+
+[LibraryClasses]
+  BootKeysLib|Include/Library/BootKeysLib.h
+
+[Guids]
+  gAndr36oidPkgTokenSpaceGuid = { 0x8f3b6a21, 0x4d7c, 0x4e19, { 0xb2, 0x5a, 0x6e, 0x0d, 0x91, 0xc4, 0x37, 0x8b } }

@@ -1,0 +1,14 @@
+#
+# andr36oid RK3326 handhelds. U-Boot's booti loads Mu-r36s.bin like a Linux
+# Image (BootShim carries the arm64 Image header and moves the FD into place).
+#
+
+[uefi_fd]
+base = 0x02000000
+size = 0x00300000
+
+[boot_shim]
+requires_kernel_header = true
+
+[payload]
+type = "raw"

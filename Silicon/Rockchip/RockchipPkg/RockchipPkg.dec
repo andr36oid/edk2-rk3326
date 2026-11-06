@@ -1,0 +1,41 @@
+##
+#  Rockchip SoC family: shared drivers and library classes.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  DEC_SPECIFICATION              = 0x0001001A
+  PACKAGE_NAME                   = RockchipPkg
+  PACKAGE_GUID                   = 7EB1DE03-3910-4D1D-84CE-C17B53636B9A
+  PACKAGE_VERSION                = 0.1
+
+[Includes.common]
+  Include
+
+[LibraryClasses]
+  GpioLib|Include/Library/GpioLib.h
+  CruLib|Include/Library/CruLib.h
+  RkSdmmcPlatformLib|Include/Library/RkSdmmcPlatformLib.h
+  RkPlatformInfoLib|Include/Library/RkPlatformInfoLib.h
+  RkPmicLib|Include/Library/RkPmicLib.h
+  RkLogLib|Include/Library/RkLogLib.h
+
+[Guids.common]
+  gRockchipPkgTokenSpaceGuid        = { 0x99a14446, 0xaad7, 0xe460, { 0xb4, 0xe5, 0x1f, 0x79, 0xaa, 0xa4, 0x93, 0xfd } }
+  gRkPlatformInfoHobGuid            = { 0x3a1f6c2e, 0x8b4d, 0x4e57, { 0x9a, 0x21, 0x6d, 0x0c, 0x5e, 0x7b, 0x14, 0xa9 } }
+  gDwMmcHcNonDiscoverableDeviceGuid = { 0x971ab768, 0xd733, 0x41be, { 0xac, 0x9e, 0x82, 0x36, 0x10, 0x94, 0xc9, 0x3c } }
+
+[Protocols]
+  gPlatformDwMmcProtocolGuid        = { 0x1d6dfde5, 0x76a7, 0x4404, { 0x85, 0x74, 0x7a, 0xdf, 0x1a, 0x8a, 0xa2, 0x0d } }
+
+[PcdsFixedAtBuild.common]
+  gRockchipPkgTokenSpaceGuid.PcdRkSdmmcBaseAddress|0xff370000|UINT32|0x40000030
+  gRockchipPkgTokenSpaceGuid.PcdRkSdmmcCardDetectBroken|FALSE|BOOLEAN|0x40000031
+
+[PcdsFeatureFlag.common]
+  # DEBUG output drawn on the screen as it is printed
+  gRockchipPkgTokenSpaceGuid.PcdRkLogScreen|TRUE|BOOLEAN|0x40000040
+
+[PcdsFixedAtBuild.common]
+  # Also send the log out of UART2 (115200, needs a soldered serial adapter)
+  gRockchipPkgTokenSpaceGuid.PcdRkLogUart|FALSE|BOOLEAN|0x40000041

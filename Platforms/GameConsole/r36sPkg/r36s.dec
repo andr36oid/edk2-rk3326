@@ -1,0 +1,5 @@
+[Defines]
+  DEC_SPECIFICATION              = 0x00010005
+  PACKAGE_NAME                   = r36s
+  PACKAGE_GUID                   = 3C9E5B21-7A4D-4F18-9B6E-0D2A8C4F7E19
+  PACKAGE_VERSION                = 0.1

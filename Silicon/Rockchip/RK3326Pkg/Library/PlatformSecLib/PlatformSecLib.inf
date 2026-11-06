@@ -1,0 +1,22 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = PlatformSecLib
+  FILE_GUID                      = 0E5C0E43-2B8B-4D3B-9C5A-5C2E1C7F3A10
+  MODULE_TYPE                    = SEC
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PlatformSecLib
+
+[Sources]
+  PlatformSec.c
+
+[Sources.AArch64]
+  AArch64/PlatformHelper.S
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  MdePkg/MdePkg.dec
+  SiliciumPkg/SiliciumPkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  RkLogLib
