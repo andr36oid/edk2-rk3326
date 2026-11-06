@@ -169,7 +169,7 @@ if want android; then
     has android "boot: eMMC test: eMMC not readable here"
     onboot android emmc-test.txt "emmc_test=tried"
     # The screen DTB for hwrev rg351mp goes to the display driver
-    has android "boot: screen: BOOT/rg351mp-uboot.dtb ($(stat -c %s "$DTB") bytes) for the display: Success"
+    has android "boot: screen: BOOT/rg351mp-uboot.dtb ($(stat -L -c %s "$DTB") bytes) for the display: Success"
 fi
 
 # 2. EL1 (PSCI over HVC), recovery.txt, no facts from U-Boot (no -append):
