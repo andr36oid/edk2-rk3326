@@ -670,6 +670,12 @@ static void dw_write(void *opaque, hwaddr off, uint64_t val, unsigned size)
             idmac_run(s);
         }
         break;
+    case R_CTYPE:
+        if (v != REG(s, R_CTYPE)) {
+            dw_log(s, "bus width %s", (v & 0x10000) ? "8 bit" : (v & 1) ? "4 bit" : "1 bit");
+        }
+        REG(s, R_CTYPE) = v;
+        break;
     case R_MINTSTS: case R_STATUS: case R_CDETECT: case R_WRTPRT: case R_VERID:
     case R_HCON: case R_TCBCNT: case R_TBBCNT: case R_DSCADDR: case R_BUFADDR:
         break;                      /* read-only */

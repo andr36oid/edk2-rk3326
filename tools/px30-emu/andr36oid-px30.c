@@ -957,6 +957,12 @@ static void px30_init(MachineState *ms)
         g_autofree char *l0 = opt.mmc_log ? g_strdup_printf("%s-sdmmc.txt", opt.mmc_log) : NULL;
         g_autofree char *l1 = opt.mmc_log ? g_strdup_printf("%s-emmc.txt", opt.mmc_log) : NULL;
 
+        /* the card-detect pad (rk3326-r36s-android.dtsi &sdmmc: cd-gpios =
+         * <&gpio0 RK_PA3 GPIO_ACTIVE_LOW>, also the controller's sdmmc_det
+         * function behind CDETECT) is low while a card is in the slot */
+        if (drive_get(IF_SD, 0, 0)) {
+            opt.gpio_in[0] &= ~(1u << 3);
+        }
         px30_dwmmc_create(0xFF370000, qdev_get_gpio_in(gic, 54), "sdmmc",
                           drive_get(IF_SD, 0, 0), false, opt.sd_fault, l0);
         px30_dwmmc_create(0xFF390000, qdev_get_gpio_in(gic, 53), "emmc",

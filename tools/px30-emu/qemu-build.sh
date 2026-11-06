@@ -5,7 +5,7 @@
 #
 # emu-dir (default /srv/andr36oid-uefi/emu) holds dl/, src/qemu-<ver>/ and
 # build/. The upstream tarball is fetched once into dl/ (checksum checked),
-# unpacked into src/, andr36oid-px30.c is copied into src/.../hw/arm/ and
+# unpacked into src/, andr36oid-px30.c and px30-dwmmc.c are copied into src/.../hw/arm/ and
 # registered in hw/arm/Kconfig and hw/arm/meson.build, then ninja builds
 # build/qemu-system-aarch64. Re-running only recopies the machine file and
 # rebuilds.
