@@ -11,7 +11,7 @@
 # rebuilds.
 set -eo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
-EMU=${1:-/srv/andr36oid-uefi/emu}
+EMU=${1:-${EMU_DIR:-/srv/andr36oid-uefi/emu}}
 VER=11.1.3
 SHA256=${QEMU_SHA256:-}
 SRC=$EMU/src/qemu-$VER

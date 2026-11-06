@@ -353,8 +353,18 @@ also runs `check-image.py`, `check-depex.py` and `emulate-shim.py`.
   and Kernel Tweaks.
 - Static checks run during development: the clang analyzer, stricter warnings,
   a format-string checker for edk2's `Print`, and ASan/UBSan on the host tests.
-- A QEMU PX30 machine (memory map, VOP, CRU and a DW-MMC model) was used to run
-  the real r36s image. It is not in this branch yet.
+- `tools/px30-emu/`: a QEMU machine shaped like the PX30 that runs the real r36s
+  image. It has the memory map, a CRU, the VOP and a DW-MMC SD/eMMC model with
+  andr36oid card images, plus a small PX30 test kernel.
+  - `qemu-build.sh` builds the patched QEMU;
+  - `mkcard.sh` makes card images;
+  - `run.sh` runs one scenario;
+  - `sd-scenarios.sh` runs the SD/eMMC set: IDMAC and PIO, 512 MB, recovery,
+    eMMC, starts without U-Boot, no card, and injected CRC errors and
+    timeouts.
+
+  Paths default to the developer's machine; set `EMU_DIR` (and `QEMU`, `CARDS`,
+  `HOOK`) to override them.
 
 ## 10. Testing on hardware
 
@@ -379,6 +389,10 @@ The ones that would have broken a start:
 - reboot reasons that U-Boot clears showing the charge screen;
 - a VOP read with the VO power domain off;
 - an eMMC install's data card chosen over the eMMC;
+- the SD/eMMC driver re-identifying a slot that failed (an eMMC slot with no
+  chip, a dead card) every 100 ms at callback priority. That flooded the log
+  and starved the boot menu. It now stops after three tries until the card is
+  taken out;
 - a changed serial number on starts without U-Boot.
 
 ## 12. Open items
@@ -399,9 +413,6 @@ The ones that would have broken a start:
 - **Logo after display reinit.** With `display=reinit` the DT gets the
   `drm-logo` region but not the route's `logo,*`/`video,*` properties. The
   kernel cannot adopt the screen and keeps the region reserved.
-- **No card at all.** In the PX30 emulator, with neither an SD card nor an eMMC,
-  the SD and eMMC drivers re-probe in a loop and fill the log ring. Not
-  analysed yet.
 
 ## 13. Commit history
 

@@ -28,7 +28,7 @@ set -eo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 PATH=$PATH:/usr/sbin:/sbin
 IMG=$1; shift || { sed -n '2,25p' "$0"; exit 2; }
-IN=/srv/andr36oid-uefi/emu/inputs/card
+IN=${EMU_DIR:-/srv/andr36oid-uefi/emu}/inputs/card
 RECOVERY=0; NORD=0; NOKERNEL=0; UEFI=
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -41,8 +41,8 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-HOOK=/andr36oid/work/reports/uefi/testkit/boot.ini-uefi-hook.txt
-W=$(mktemp -d /srv/andr36oid-uefi/emu/tmp.mkcard.XXXXXX)
+HOOK=${HOOK:-$(cd "$(dirname "$0")/../.." && pwd)/andr36oid/testkit/boot.ini-uefi-hook.txt}
+W=$(mktemp -d ${EMU_DIR:-/srv/andr36oid-uefi/emu}/tmp.mkcard.XXXXXX)
 trap 'rm -rf "$W"' EXIT
 
 # Test kernel, linked at 0 (it checks it runs wherever it is put)

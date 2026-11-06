@@ -15,7 +15,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 FW=$(readlink -f "$1"); RUNS=$(readlink -f "$2"); shift 2
 PIO=${PIO:-}
-CARDS=${CARDS:-/srv/andr36oid-uefi/emu/cards}
+CARDS=${CARDS:-${EMU_DIR:-/srv/andr36oid-uefi/emu}/cards}
 ALL="idmac 512m pio recovery emmc emmc-native native nocard dcrc rto drto dead pio-dcrc"
 LIST=${*:-$ALL}
 mkdir -p "$CARDS" "$RUNS"

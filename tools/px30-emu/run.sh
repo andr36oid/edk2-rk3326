@@ -34,7 +34,7 @@ set -eo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 [ $# -ge 3 ] || { sed -n '2,25p' "$0"; exit 2; }
 IMAGE=$(readlink -f "$1"); SCEN=$2; OUT=$3; shift 3
-QEMU=${QEMU:-/srv/andr36oid-uefi/emu/build/qemu-system-aarch64}
+QEMU=${QEMU:-${EMU_DIR:-/srv/andr36oid-uefi/emu}/build/qemu-system-aarch64}
 TIMEOUT=${TIMEOUT:-120}
 IDLE=${IDLE:-25}
 
