@@ -70,6 +70,10 @@ RkPmicInit (
   UINT8       Lsb;
   UINT8       OnSource;
   UINT8       OffSource;
+  UINT8       En[4];
+  UINT8       Save0;
+  UINT8       Save1;
+  UINTN       I;
 
   if (mReady) {
     return EFI_SUCCESS;
@@ -96,6 +100,23 @@ RkPmicInit (
     DEBUG ((DEBUG_ERROR, "PMIC: not an RK817\n"));
     return EFI_UNSUPPORTED;
   }
+
+  //
+  // U-Boot's probe copies the rail enables into the two POWER_EN_SAVE
+  // registers before anything is switched; the kernel's reboot handler brings
+  // the same rails back from them.
+  //
+  for (I = 0; I < 4; I++) {
+    En[I] = 0;
+    if (EFI_ERROR (PmicRead ((UINT8)RK817_POWER_EN (I), &En[I]))) {
+      DEBUG ((DEBUG_WARN, "PMIC: POWER_EN%u unreadable\n", I));
+    }
+  }
+
+  Rk817PowerEnSave (En[0], En[1], En[2], En[3], &Save0, &Save1);
+  PmicWrite (RK817_POWER_EN_SAVE0, Save0);
+  PmicWrite (RK817_POWER_EN_SAVE1, Save1);
+  DEBUG ((DEBUG_INFO, "PMIC: POWER_EN %02X %02X %02X %02X, saved 0x%02X 0x%02X\n", En[0], En[1], En[2], En[3], Save0, Save1));
 
   //
   // What U-Boot sets at probe (rk817_init_reg): under-voltage protection,
@@ -283,6 +304,8 @@ RkPmicGetPowerStatus (
   Status->Charging          = FALSE;
   Status->PowerKeyPressed   = FALSE;
   Status->BatteryMicroVolts = 0;
+  Status->BatteryPresent    = FALSE;
+  Status->PowerKeyTap       = FALSE;
 
   Result = RkPmicInit ();
   if (EFI_ERROR (Result)) {
@@ -303,6 +326,7 @@ RkPmicGetPowerStatus (
   //
   Status->ChargerPresent = (SysSts & RK817_SYS_STS_PLUG) != 0;
   Status->Charging       = Rk817IsCharging (ChrgSts);
+  Status->BatteryPresent = (ChrgSts & RK817_BAT_EXS) != 0;
 
   //
   // Power key: latched events. Read and clear them (write 1).
@@ -314,6 +338,7 @@ RkPmicGetPowerStatus (
     }
 
     mPowerKeyPressed = Rk817PowerKeyState (mPowerKeyPressed, Ints);
+    Status->PowerKeyTap = (Ints == (RK817_INT_PWRON_FALL | RK817_INT_PWRON_RISE));
   }
 
   Status->PowerKeyPressed = mPowerKeyPressed;
@@ -330,12 +355,46 @@ RkPmicGetPowerStatus (
                    ((UINT32)C0H << 8) | C0L,
                    ((UINT32)C1H << 8) | C1L
                    );
-    if (MilliVolts > 0) {
+    if (Rk817BatteryMilliVoltsValid (MilliVolts)) {
       Status->BatteryMicroVolts = (UINT32)MilliVolts * 1000;
     }
   }
 
   return EFI_SUCCESS;
+}
+
+EFI_STATUS
+EFIAPI
+RkPmicSetChargerLimits (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+  UINT8       SysSts;
+  UINT8       Out;
+  BOOLEAN     Plugged;
+
+  Status = RkPmicInit ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Status = PmicRead (RK817_SYS_STS, &SysSts);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  Plugged = (SysSts & RK817_SYS_STS_PLUG) != 0;
+  Status  = PmicWrite (RK817_USB_CTRL, Rk817UsbCtrl (Plugged));
+  if (!EFI_ERROR (Status) && Plugged) {
+    Status = PmicRead (RK817_CHRG_OUT, &Out);
+    if (!EFI_ERROR (Status)) {
+      Status = PmicWrite (RK817_CHRG_OUT, Rk817ChrgOut (Out));
+    }
+  }
+
+  DEBUG ((DEBUG_INFO, "PMIC: charger limits for %a input: %r\n", Plugged ? "DC" : "no", Status));
+  return Status;
 }
 
 EFI_STATUS

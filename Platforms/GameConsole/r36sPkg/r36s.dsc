@@ -42,10 +42,12 @@
   MemoryMapLib|r36sPkg/Library/MemoryMapLib/MemoryMapLib.inf
   BootKeysLib|r36sPkg/Library/BootKeysLib/BootKeysLib.inf
   KeypadDeviceLib|r36sPkg/Library/KeypadDeviceLib/KeypadDeviceLib.inf
+  PowerCheckLib|Andr36oidPkg/Library/PowerCheckLib/PowerCheckLib.inf
 
 [Components]
   # The null instance is not mapped, built here so it keeps compiling
   Andr36oidPkg/Library/BootKeysLibNull/BootKeysLibNull.inf
+  Andr36oidPkg/Library/PowerCheckLibNull/PowerCheckLibNull.inf
 
   # Clocks, IO domains, pins and GPIOs, first thing in DXE
   r36sPkg/Drivers/BoardInitDxe/BoardInitDxe.inf

@@ -18,6 +18,7 @@
   LinuxBootLib|Include/Library/LinuxBootLib.h
   BootPlatformLib|Include/Library/BootPlatformLib.h
   BootPolicyLib|Include/Library/BootPolicyLib.h
+  PowerCheckLib|Include/Library/PowerCheckLib.h
 
 [Guids]
   # FILE_GUID of Application/Andr36oidBoot (the boot option DeviceBootManagerLib puts first)

@@ -1,0 +1,33 @@
+[Defines]
+  INF_VERSION                    = 0x0001001A
+  BASE_NAME                      = PowerCheckLib
+  FILE_GUID                      = 2D8A4C61-9E37-4B05-A1F2-6C0B7E93D458
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PowerCheckLib
+
+[Sources]
+  PowerCheckLib.c
+  PowerPolicy.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  RockchipPkg/RockchipPkg.dec
+  Andr36oidPkg/Andr36oidPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  CruLib
+  DebugLib
+  GpioLib
+  HobLib
+  IoLib
+  PrintLib
+  RkPmicLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+
+[Guids]
+  gRkPlatformInfoHobGuid

@@ -1,0 +1,14 @@
+[Defines]
+  INF_VERSION                    = 0x0001001A
+  BASE_NAME                      = PowerCheckLibNull
+  FILE_GUID                      = 7A41E5B3-0C98-4D62-8B17-F3D5290E6A84
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PowerCheckLib
+
+[Sources]
+  PowerCheckLibNull.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Andr36oidPkg/Andr36oidPkg.dec

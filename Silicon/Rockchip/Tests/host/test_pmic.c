@@ -64,8 +64,11 @@ static void test_basic (void)
   UINTN off;
 
   reset_dev ();
+  dev[0xB1] = 0x0F; dev[0xB2] = 0xA5; dev[0xB3] = 0x03; dev[0xB4] = 0xF4;   // rails as the boot ROM left them
   CHECK_EQ (RkPmicInit (), EFI_SUCCESS);
   CHECK_EQ (i2c_inits, 1);
+  CHECK_EQ (dev[0x99], 0x5F);                  // POWER_EN_SAVE0/1 as U-Boot's probe fills them
+  CHECK_EQ (dev[0xA4], 0x43);
   CHECK_EQ (RkPmicInit (), EFI_SUCCESS);       // second call does nothing
   CHECK_EQ (i2c_inits, 1);
   // what U-Boot's rk817_init_reg sets
@@ -85,10 +88,21 @@ static void test_basic (void)
   CHECK (s.Charging);
   CHECK (!s.PowerKeyPressed);
   CHECK (s.BatteryMicroVolts > 3150000 && s.BatteryMicroVolts < 3175000);
+  CHECK (s.BatteryPresent);
+  CHECK (!s.PowerKeyTap);
 
   dev[0xF0] = 0x00; dev[0xEB] = 0x80;
   CHECK_EQ (RkPmicGetPowerStatus (&s), EFI_SUCCESS);
   CHECK (!s.ChargerPresent); CHECK (!s.Charging);
+  dev[0xEB] = 0x00;                            // no battery
+  RkPmicGetPowerStatus (&s);
+  CHECK (!s.BatteryPresent);
+  // calibration registers still zero: the maths gives nonsense, reported as unknown
+  dev[0x93] = dev[0x94] = dev[0x95] = dev[0x96] = 0; dev[0x78] = dev[0x79] = 0;
+  RkPmicGetPowerStatus (&s);
+  CHECK_EQ (s.BatteryMicroVolts, 0);
+  dev[0x93] = 0x0A; dev[0x94] = 0x00; dev[0x95] = 0x14; dev[0x96] = 0x00;
+  dev[0x78] = 0x0F; dev[0x79] = 0x00; dev[0xEB] = 0x80;
 
   // power key: fall latches pressed, rise releases, status bits are cleared
   dev[0xF8] = 0x01;
@@ -100,12 +114,28 @@ static void test_basic (void)
   dev[0xF8] = 0x02;
   CHECK_EQ (RkPmicGetPowerStatus (&s), EFI_SUCCESS);
   CHECK (!s.PowerKeyPressed);
+  dev[0xF8] = 0x03;                            // fall and rise in one read: a tap
+  RkPmicGetPowerStatus (&s);
+  CHECK (!s.PowerKeyPressed); CHECK (s.PowerKeyTap);
+  dev[0xF8] = 0x00;
+  RkPmicGetPowerStatus (&s);
+  CHECK (!s.PowerKeyTap);
   dev[0xF8] = 0x40 | 0x01;                     // other bits (RTC) must not be cleared by us
   RkPmicGetPowerStatus (&s);
   CHECK_EQ (dev[0xF8] & 0x40, 0x40);
 
   // battery voltage 0 when the ADC reads nonsense (calibration points equal => k huge but sane)
   CHECK_EQ (RkPmicGetPowerStatus (NULL), EFI_INVALID_PARAMETER);
+
+  // charger limits: DC in -> 4.5 V limit, 1500 mA in, 1500 mA charge; unplugged -> 450 mA
+  dev[0xF0] = 0x40; dev[0xE4] = 0xF8; dev[0xE5] = 0x00;
+  CHECK_EQ (RkPmicSetChargerLimits (), EFI_SUCCESS);
+  CHECK_EQ (dev[0xE5], 0xDB);
+  CHECK_EQ (dev[0xE4], 0xF9);
+  dev[0xF0] = 0x00; dev[0xE4] = 0xF8;
+  CHECK_EQ (RkPmicSetChargerLimits (), EFI_SUCCESS);
+  CHECK_EQ (dev[0xE5], 0xD8);
+  CHECK_EQ (dev[0xE4], 0xF8);                  // charge current left alone without a charger
 
   // power off: DEV_OFF set, other SYS_CFG3 bits kept, "does not return" is an error here
   dev[0xF4] = 0x08;
