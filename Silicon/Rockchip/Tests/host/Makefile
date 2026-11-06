@@ -34,6 +34,7 @@ all: $(TESTS)
 	@echo "== test_pmic with $(DTB)"; if [ -f $(DTB) ]; then ./test_pmic $(DTB) || exit 1; else echo "(no DTB, skipped)"; fi
 	@echo "== key map against the kernel DTS"; if [ -d $(DTS) ]; then python3 -I check-keys-vs-dts.py $(DTS) ./dump_keys || exit 1; else echo "(no kernel tree, skipped)"; fi
 	@echo "== clock tables against U-Boot"; if [ -d $(UBOOT) ]; then python3 -I check-clk-vs-uboot.py $(UBOOT) ./dump_clk || exit 1; else echo "(no U-Boot tree, skipped)"; fi
+	@echo "== display"; $(MAKE) -s -C display || exit 1
 	@echo ALL OK
 
 mock/fdt_shim.o: mock/fdt_shim.c
