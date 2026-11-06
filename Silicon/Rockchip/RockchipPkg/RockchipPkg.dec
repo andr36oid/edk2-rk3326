@@ -41,3 +41,9 @@
 [PcdsFixedAtBuild.common]
   # Also send the log out of UART2 (115200, needs a soldered serial adapter)
   gRockchipPkgTokenSpaceGuid.PcdRkLogUart|FALSE|BOOLEAN|0x40000041
+
+#
+# Display (RkGopLib)
+#
+[LibraryClasses]
+  RkGopLib|Include/Library/RkGopLib.h

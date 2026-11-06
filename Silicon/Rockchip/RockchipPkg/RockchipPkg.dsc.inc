@@ -15,3 +15,6 @@
 
   # Interface stubs, built here so they keep compiling
   RockchipPkg/Library/RkPmicLibNull/RkPmicLibNull.inf
+
+[LibraryClasses.common.DXE_DRIVER]
+  RkGopLib|RockchipPkg/Library/RkGopLib/RkGopLib.inf
