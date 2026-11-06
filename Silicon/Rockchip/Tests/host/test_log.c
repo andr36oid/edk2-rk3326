@@ -469,6 +469,11 @@ static int Px (CONST FB *F, UINT32 x, UINT32 y)
 {
   UINT8  *P = F->Base + (size_t)y * F->Stride + (size_t)x * (F->Bpp / 8);
 
+  if (F->Bpp == 24) {
+    UINT32  V = P[0] | (P[1] << 8) | ((UINT32)P[2] << 16);
+    return V == 0x333333 ? PX_OLD : V == 0xFFFFFF ? PX_ON : V == 0 ? PX_OFF : PX_OTHER;
+  }
+
   if (F->Bpp == 32) {
     UINT32  V = *(UINT32 *)P;
     return V == 0x33333333 ? PX_OLD : V == 0xFFFFFFFF ? PX_ON : (V == 0xFF000000 || V == 0) ? PX_OFF : PX_OTHER;
@@ -826,7 +831,7 @@ static void TestSetFramebuffer (void)
   FB      Copy;
   UINTN   i;
   static CONST struct { CONST char *Name; UINT32 W, H, Stride, Bpp; } No[] = {
-    { "24 bpp",                 640, 480, 1920, 24 },
+    { "24 bpp stride short",    640, 480, 1919, 24 },
     { "8 bpp",                  640, 480, 640,  8  },
     { "0 bpp",                  640, 480, 2560, 0  },
     { "narrower than a glyph",  GLYPH_W - 1, 480, 64, 32 },
@@ -899,9 +904,14 @@ static void TestSetFramebuffer (void)
     RkLogSetFramebuffer ((UINT64)(UINTN)C.Base, 640, 480, 1920, 24);
     memcpy (Snap, C.Body, C.BodyLen);
     Put ("now 24 bpp\n");
-    Same24 = memcmp (Snap, C.Body, C.BodyLen) == 0;
-    KNOWN (Same24, "log-fb-same-base",
-           "RkLogSetFramebuffer(same base, 640x480, 24 bpp) after 32 bpp: the log keeps drawing 32 bpp glyphs");
+    {
+      size_t  Off = (size_t)(C.Base - C.Body), End24 = (size_t)1920 * 480;
+
+      Same24 = memcmp (Snap + Off, C.Base, End24) == 0;
+      CHECK (!Same24);                                         // drawn ...
+      CHECK (memcmp (Snap + Off + End24, C.Base + End24, C.BodyLen - Off - End24) == 0);   // ... inside 24 bpp
+      CHECK (CURRENT->FbValid);
+    }
 
     WipeLog ();
     NewBoot ();
@@ -915,9 +925,7 @@ static void TestSetFramebuffer (void)
     }
 
     Past16 = memcmp (Snap + (C.Base - C.Body) + End16, C.Base + End16, C.BodyLen - (size_t)(C.Base - C.Body) - End16) != 0;
-    KNOWN (!Past16, "log-fb-same-base",
-           "RkLogSetFramebuffer(same base, 640x480, stride 1280, 16 bpp) after 32 bpp: the log writes past the "
-           "16 bpp buffer's %lu bytes (old stride and depth kept)", (unsigned long)End16);
+    CHECK (!Past16);
     free (Snap);
     FbFree (&C);
   }
@@ -930,9 +938,7 @@ static void TestSetFramebuffer (void)
     WipeLog ();
     NewBoot ();
     RkLogSetFramebuffer ((UINT64)(UINTN)D.Base, 0x40000001, 48, 2560, 32);
-    KNOWN (!CURRENT->FbValid, "log-fb-width-wrap",
-           "width 0x40000001 at 32 bpp with stride 2560 accepted (Width * 4 wraps to 4); drawing would run "
-           "past each line and the buffer");
+    CHECK (!CURRENT->FbValid);
     CURRENT->FbValid = 0;
     FbFree (&D);
   }
@@ -990,8 +996,22 @@ static void TestReplay (void)
     for (S = Lower; S <= N && !Found; S++) {
       size_t  k;
 
+      // A start inside a line only for a line too long for the screen
+      // (its tail is shown).
       if ((S != Lower) && (Log[S - 1] != '\n')) {
-        continue;
+        size_t  L0 = S, L1 = S;
+
+        while ((L0 > 0) && (Log[L0 - 1] != '\n')) {
+          L0--;
+        }
+
+        while ((L1 < N) && (Log[L1] != '\n')) {
+          L1++;
+        }
+
+        if (L1 - L0 <= (size_t)Cols * (Rows - 1)) {
+          continue;
+        }
       }
 
       TermInit (&Tm, Cols, Rows);
@@ -1019,9 +1039,7 @@ static void TestReplay (void)
     } else if ((R[r].Lines >= Rows) && (R[r].Len < Cols)) {
       // A log with more short lines than rows: the replay should leave the
       // screen showing about a screenful, not a few lines after a clear.
-      KNOWN (Shown + 1 >= Rows / 2, "replay-partial-screen",
-             "%ux%u, %u lines of %u chars: only %u of %u rows show text after the replay", R[r].W, R[r].H,
-             R[r].Lines, R[r].Len, Shown, Rows);
+      CHECK (Shown + 1 >= Rows / 2);
     }
 
     FbFree (&F);
@@ -1048,15 +1066,7 @@ static void TestStartFramebuffer (void)
     WipeLog ();
     NewBoot ();
     TermInit (&Tm, 640 / GLYPH_W, 480 / GLYPH_H);
-    if (Bpp[i] == 24) {
-      UINT8  *Snap = malloc (F.BodyLen);
-
-      CHECK (!CURRENT->FbValid);
-      memcpy (Snap, F.Body, F.BodyLen);
-      Put ("Project Silicium for r36s\n");
-      CHECK (memcmp (Snap, F.Body, F.BodyLen) == 0);
-      free (Snap);
-    } else {
+    {
       CHECK (CURRENT->FbValid);
       Say (&F, "Project Silicium for r36s\n", "the first line in SEC");
     }

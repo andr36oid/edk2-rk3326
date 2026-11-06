@@ -71,7 +71,10 @@ InitHeader (
   ZeroMem (H, sizeof (*H));
   H->HeaderSize = sizeof (LOG_HEADER);
   H->DataSize   = LOG_HALF - sizeof (LOG_HEADER);
-  if (!EFI_ERROR (RkGetActiveFramebuffer (&Fb)) && ((Fb.BitsPerPixel == 32) || (Fb.BitsPerPixel == 16))) {
+  // U-Boot shows a 24-bit BMP logo as it is (RGB888), a 32-bit one as ARGB8888.
+  if (!EFI_ERROR (RkGetActiveFramebuffer (&Fb)) &&
+      ((Fb.BitsPerPixel == 32) || (Fb.BitsPerPixel == 24) || (Fb.BitsPerPixel == 16)))
+  {
     H->FbValid         = 1;
     H->FbBase          = Fb.Base;
     H->FbWidth         = Fb.Width;
@@ -166,6 +169,8 @@ ScreenPutChar (
 
       if (H->FbBytesPerPixel == 4) {
         *(UINT32 *)P = On ? 0xFFFFFFFF : 0xFF000000;
+      } else if (H->FbBytesPerPixel == 3) {
+        P[0] = P[1] = P[2] = On ? 0xFF : 0x00;
       } else {
         *(UINT16 *)P = On ? 0xFFFF : 0x0000;
       }
@@ -304,21 +309,29 @@ RkLogSetFramebuffer (
   )
 {
   LOG_HEADER  *H = CURRENT;
-  UINT64      Size;
+  UINT64      Oldest;
   UINT64      Start;
+  UINT64      End;
   UINT64      Index;
+  UINT32      Cols;
+  UINT32      Rows;
+  UINT32      Used;
+  UINT32      Need;
+  UINT32      Len;
 
   if (!HeaderValid (H)) {
     return;
   }
 
-  if (H->FbValid && (H->FbBase == Base) && (H->FbWidth == Width) && (H->FbHeight == Height)) {
-    return;   // already drawing there
+  if (H->FbValid && (H->FbBase == Base) && (H->FbWidth == Width) && (H->FbHeight == Height) &&
+      (H->FbStride == Stride) && (H->FbBytesPerPixel == BitsPerPixel / 8))
+  {
+    return;   // already drawing there, the same way
   }
 
   H->FbValid = 0;
-  if (((BitsPerPixel != 32) && (BitsPerPixel != 16)) || (Width < GLYPH_W) || (Height < GLYPH_H) ||
-      (Stride < Width * (BitsPerPixel / 8)))
+  if (((BitsPerPixel != 32) && (BitsPerPixel != 24) && (BitsPerPixel != 16)) ||
+      (Width < GLYPH_W) || (Height < GLYPH_H) || ((UINT64)Stride < (UINT64)Width * (BitsPerPixel / 8)))
   {
     return;
   }
@@ -332,15 +345,39 @@ RkLogSetFramebuffer (
   H->Row             = 0;
   H->FbValid         = 1;
 
-  // About one screenful of the newest bytes, from the start of a line.
-  Size  = MIN (H->Written, (UINT64)H->DataSize);
-  Size  = MIN (Size, (UINT64)(Width / GLYPH_W) * (Height / GLYPH_H));
-  Start = H->Written - Size;
-  for (Index = Start; Index < H->Written; Index++) {
-    if (DATA (H)[Index % H->DataSize] == '\n') {
-      Start = Index + 1;
+  //
+  // The newest whole lines that fit, leaving the last row for what comes
+  // next: walk back counting the rows each line takes (long ones wrap), so
+  // the replay never runs off the bottom and starts over at the top.
+  //
+  Cols   = Width / GLYPH_W;
+  Rows   = Height / GLYPH_H;
+  Oldest = (H->Written > H->DataSize) ? H->Written - H->DataSize : 0;
+  Start  = H->Written;
+  End    = H->Written;
+  Used   = 0;
+  Len    = 0;
+  for (Index = H->Written; Index > Oldest; Index--) {
+    if (DATA (H)[(Index - 1) % H->DataSize] != '\n') {
+      Len++;
+      continue;
+    }
+
+    Need = MAX ((Len + Cols - 1) / Cols, 1);
+    if (Used + Need > Rows - 1) {
       break;
     }
+
+    Used += Need;
+    Start = Index;
+    End   = Index - 1;
+    Len   = 0;
+  }
+
+  // The line that did not fit (or the oldest one in the ring): its tail, in
+  // the rows left over. [End - Len, End) holds it; End is its newline.
+  if ((Len > 0) && (Used < Rows - 1)) {
+    Start = End - MIN (Len, (UINT64)(Rows - 1 - Used) * Cols);
   }
 
   for (Index = Start; Index < H->Written; Index++) {
