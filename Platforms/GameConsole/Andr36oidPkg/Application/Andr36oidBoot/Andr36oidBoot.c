@@ -28,6 +28,7 @@
 #include <Library/PowerCheckLib.h>
 #include <Library/PrintLib.h>
 #include <Library/RkLogLib.h>
+#include <Library/SerialPortLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 
@@ -53,19 +54,11 @@ Say (
   AsciiVSPrint (Line, sizeof (Line), Format, Args);
   VA_END (Args);
 
-  // Into the RAM log (on the serial console the text already lands there),
-  // in pieces: DebugLib cuts messages at 256 bytes.
+  // Into the RAM log (on the serial console the text already lands there)
+  // straight through SerialPortLib: no 256-byte cut as in DebugLib, and in
+  // RELEASE builds too, where DEBUG () is compiled out.
   if (!FeaturePcdGet (PcdBootSerialConsole)) {
-    for (I = 0; Line[I] != '\0'; I += N) {
-      CHAR8  Piece[201];
-
-      N = AsciiStrnLenS (Line + I, sizeof (Piece) - 1);
-      CopyMem (Piece, Line + I, N);
-      Piece[N] = '\0';
-      DEBUG ((DEBUG_INIT, "%a", Piece));
-    }
-
-    N = 0;
+    SerialPortWrite ((UINT8 *)Line, AsciiStrLen (Line));
   }
 
   for (I = 0; Line[I] != '\0'; I++) {
