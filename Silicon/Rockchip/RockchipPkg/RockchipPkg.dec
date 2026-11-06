@@ -31,8 +31,9 @@
   gPlatformDwMmcProtocolGuid        = { 0x1d6dfde5, 0x76a7, 0x4404, { 0x85, 0x74, 0x7a, 0xdf, 0x1a, 0x8a, 0xa2, 0x0d } }
 
 [PcdsFixedAtBuild.common]
-  gRockchipPkgTokenSpaceGuid.PcdRkSdmmcBaseAddress|0xff370000|UINT32|0x40000030
   gRockchipPkgTokenSpaceGuid.PcdRkSdmmcCardDetectBroken|FALSE|BOOLEAN|0x40000031
+  # Register the eMMC controller even when this boot didn't come from eMMC
+  gRockchipPkgTokenSpaceGuid.PcdRkEmmcAlwaysProbe|FALSE|BOOLEAN|0x40000032
 
 [PcdsFeatureFlag.common]
   # DEBUG output drawn on the screen as it is printed

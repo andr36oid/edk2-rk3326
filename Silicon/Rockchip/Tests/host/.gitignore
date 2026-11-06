@@ -4,3 +4,4 @@ test_pmic
 test_keys
 dump_keys
 *.o
+test_cru

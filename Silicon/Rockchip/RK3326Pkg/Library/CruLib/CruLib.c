@@ -16,106 +16,6 @@
 #include "CruMath.h"
 
 
-UINTN
-CruGetSdmmcClockRate (
-    IN UINT8 Index
-    )
-{
-    UINT32 Val;
-    UINT32 Sel;
-    UINT32 Shift, Mask;
-    UINTN Rate;
-    
-    ASSERT (Index <= 1);
-
-    Shift = CRU_CLKSEL_CON17_CLK_SDMMC_SEL_SHIFT;
-    Mask = CRU_CLKSEL_CON17_CLK_SDMMC_SEL_MASK;
-
-
-    Val = MmioRead32 (CRU_CLKSEL_CON (30));
-    DEBUG ((DEBUG_INFO, "CruGetSdmmcClockRate(): CRU_CLKSEL_CON30 = %08X\n", Val));
-    Sel = (Val & Mask) >> Shift;
-
-    switch (Sel) {
-    case 0:
-        Rate = 24000000U;
-        break;
-    case 1:
-        Rate = 400000000U;
-        break;
-    case 2:
-        Rate = 300000000U;
-        break;
-    case 3:
-        Rate = 100000000U;
-        break;
-    case 4:
-        Rate = 50000000U;
-        break;
-    case 5:
-        Rate = 750000U;
-        break;
-    default:
-        ASSERT (FALSE);
-        Rate = 0;
-    }
-
-    return Rate;
-}
-
-VOID
-CruSetSdmmcClockRate (
-  IN UINT8 Index,
-  IN UINTN Rate
-  )
-{
-    UINT32 Val;
-    UINT32 Sel;
-    UINT32 Shift, Mask;
-    EFI_PHYSICAL_ADDRESS Reg;
-    
-    ASSERT (Index <= 2);
-
-    if (Index == 0) {
-        Reg = CRU_CLKSEL_CON (16);
-        Shift = CRU_CLKSEL_CON16_CLK_SDMMC_SEL_SHIFT;
-        Mask = CRU_CLKSEL_CON16_CLK_SDMMC_SEL_MASK;
-    } else if (Index == 1) {
-        Reg = CRU_CLKSEL_CON (17);
-        Shift = CRU_CLKSEL_CON17_CLK_SDMMC_SEL_SHIFT;
-        Mask = CRU_CLKSEL_CON17_CLK_SDMMC_SEL_MASK;
-    }
-
-
-    //
-    // Select PLL or mux value based on requested rate
-    // PX30 mapping: SDMMC0 pll_sel
-    //   0 = GPLL, 1 = CPLL, 2 = NPLL, 3 = xin_osc0
-    //
-    if (Index == 0) {
-        if (Rate <= 750000U) {
-            Sel = 3; // xin_osc0
-        } else if (Rate <= 24000000U) {
-            Sel = 0; // GPLL
-        } else if (Rate <= 50000000U) {
-            Sel = 2; // NPLL
-        } else if (Rate <= 100000000U) {
-            Sel = 1; // CPLL
-        } else {
-            ASSERT(FALSE);
-        }
-    } else {
-        // SDMMC1 mux: 0 = clk_sdmmc, 1 = clk_sdmmc_div50
-        Sel = (Rate > 100000000U) ? 1 : 0;
-    }
-
-    Val = Mask << 16;
-    Val |= Sel << Shift;
-    MmioWrite32 (Reg, Val);
-
-    DEBUG ((DEBUG_INFO, "CruSetSdmmcClockRate(%u, %lu): 0x%08X = %08X (wrote %08X)\n", Index, Rate, (UINT32)Reg, MmioRead32 (Reg), Val));
-}
-
 VOID
 CruAssertSoftReset (
   IN UINT32 Index,
@@ -132,6 +32,127 @@ CruDeassertSoftReset (
   )
 {
     MmioWrite32 (CRU_SOFTRST_CON (Index), 1U << (Bit + 16));
+}
+
+//
+// SD (index 0) and eMMC (index 1) clocks, as U-Boot's PX30 clock driver sets
+// them. The controller halves the CRU clock (its internal clkgen), so the CRU
+// runs at twice the rate the DW-MMC divider starts from ("cclk_in", which is
+// what these functions take and return). Source GPLL, or the 24 MHz crystal
+// when GPLL can't be divided down far enough.
+//
+#define PMUCRU_GPLL_CON0      (PMUCRU_BASE + 0x00)
+#define PMUCRU_GPLL_CON1      (PMUCRU_BASE + 0x04)
+#define PMUCRU_MODE           (PMUCRU_BASE + 0x20)
+#define MMC_SRC_GPLL          0
+#define MMC_SRC_24M           3
+#define MMC_SRC_SHIFT         14
+#define MMC_DIV_MASK          0xFF
+#define MMC_DIV50_SEL         BIT15     // in CLKSEL_CON(n + 1): 0 = clk_*_div
+
+STATIC CONST struct {
+  UINT8    ClkSel;        // CLKSEL_CON: source (15:14) and divider (7:0)
+  UINT8    Gates[6][2];   // { CLKGATE_CON, bit } pairs to open, bus clocks first
+} mMmcClk[2] = {
+  // SDMMC: hclk_sdmmc_pre, hclk_sdmmc_niu, hclk_sdmmc, clk_sdmmc_div, _div50, clk_sdmmc
+  { 16, { { 6, 12 }, { 7, 0 }, { 7, 1 }, { 6, 13 }, { 6, 14 }, { 6, 15 } } },
+  // EMMC: hclk_mmc_nand, hclk_emmc, clk_emmc_div, _div50, clk_emmc (last entry repeats)
+  { 20, { { 6, 0 }, { 6, 10 }, { 6, 4 }, { 6, 5 }, { 6, 6 }, { 6, 6 } } },
+};
+
+UINTN
+CruGetGpllRate (
+  VOID
+  )
+{
+  UINT32  Con0, Con1;
+  UINT32  FbDiv, RefDiv, PostDiv1, PostDiv2;
+
+  // PMUCRU mode bits 1:0: 0 = 24 MHz bypass, 1 = PLL output.
+  if ((MmioRead32 (PMUCRU_MODE) & 0x3) != 1) {
+    return 24000000U;
+  }
+
+  Con0     = MmioRead32 (PMUCRU_GPLL_CON0);
+  Con1     = MmioRead32 (PMUCRU_GPLL_CON1);
+  FbDiv    = Con0 & 0xFFF;
+  PostDiv1 = (Con0 >> 12) & 0x7;
+  RefDiv   = Con1 & 0x3F;
+  PostDiv2 = (Con1 >> 6) & 0x7;
+  if ((RefDiv == 0) || (PostDiv1 == 0) || (PostDiv2 == 0)) {
+    return 0;
+  }
+
+  return (UINTN)(24 * FbDiv / (RefDiv * PostDiv1 * PostDiv2)) * 1000000U;
+}
+
+UINTN
+CruGetSdmmcClockRate (
+  IN UINT8  Index
+  )
+{
+  UINT32  Con;
+  UINTN   Src;
+
+  if (Index > 1) {
+    return 0;
+  }
+
+  Con = MmioRead32 (CRU_CLKSEL_CON (mMmcClk[Index].ClkSel));
+  Src = (((Con >> MMC_SRC_SHIFT) & 0x3) == MMC_SRC_24M) ? 24000000U : CruGetGpllRate ();
+  return Src / ((Con & MMC_DIV_MASK) + 1) / 2;
+}
+
+VOID
+CruSetSdmmcClockRate (
+  IN UINT8  Index,
+  IN UINTN  Rate
+  )
+{
+  UINTN   Gpll;
+  UINTN   Src;
+  UINT32  SrcSel;
+  UINTN   Div;
+  UINTN   Bit;
+
+  if ((Index > 1) || (Rate == 0)) {
+    return;
+  }
+
+  Gpll   = CruGetGpllRate ();
+  Src    = Gpll;
+  SrcSel = MMC_SRC_GPLL;
+  Div    = (Gpll != 0) ? (Gpll / 2 + Rate - 1) / Rate : 0;
+  if ((Div == 0) || (Div > 128)) {
+    Src    = 24000000U;
+    SrcSel = MMC_SRC_24M;
+    Div    = (Src / 2 + Rate - 1) / Rate;
+    if (Div > 128) {
+      Div = 128;
+    }
+  }
+
+  MmioWrite32 (
+    CRU_CLKSEL_CON (mMmcClk[Index].ClkSel),
+    ((0x3U << MMC_SRC_SHIFT | MMC_DIV_MASK) << 16) | (SrcSel << MMC_SRC_SHIFT) | (UINT32)(Div - 1)
+    );
+  // Take clk_*_div, not the div50 path.
+  MmioWrite32 (CRU_CLKSEL_CON (mMmcClk[Index].ClkSel + 1), MMC_DIV50_SEL << 16);
+  // Ungate: hiword-masked, a written 0 enables.
+  for (Bit = 0; Bit < ARRAY_SIZE (mMmcClk[Index].Gates); Bit++) {
+    MmioWrite32 (CRU_CLKGATE_CON (mMmcClk[Index].Gates[Bit][0]), 1U << (mMmcClk[Index].Gates[Bit][1] + 16));
+  }
+
+  DEBUG ((
+    DEBUG_INFO,
+    "CRU: mmc%u from %a %lu Hz / %lu / 2 = %lu Hz (asked %lu)\n",
+    Index,
+    (SrcSel == MMC_SRC_24M) ? "24M" : "GPLL",
+    (UINT64)Src,
+    (UINT64)Div,
+    (UINT64)CruGetSdmmcClockRate (Index),
+    (UINT64)Rate
+    ));
 }
 
 //

@@ -30,9 +30,13 @@
   BaseMemoryLib
   DebugLib
   UefiBootServicesTableLib
+  BaseLib
+  CruLib
+  DevicePathLib
+  FdtLib
+  HobLib
   RkSdmmcPlatformLib
   TimerLib
-  CruLib
 
 [Protocols]
   gEfiDevicePathProtocolGuid                      ## PRODUCES
@@ -41,10 +45,11 @@
 
 [Guids]
   gDwMmcHcNonDiscoverableDeviceGuid
+  gRkPlatformInfoHobGuid
 
-[Pcd]
-  gRockchipPkgTokenSpaceGuid.PcdRkSdmmcBaseAddress
+[FixedPcd]
   gRockchipPkgTokenSpaceGuid.PcdRkSdmmcCardDetectBroken
+  gRockchipPkgTokenSpaceGuid.PcdRkEmmcAlwaysProbe
 
 [Depex]
   TRUE

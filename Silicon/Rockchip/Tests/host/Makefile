@@ -24,10 +24,10 @@ CFLAGS = -std=gnu11 -O1 -g -fshort-wchar -funsigned-char -fno-strict-aliasing -W
          -I$(R36S)/Library/BootKeysLib -I$(R36S)/Library/KeypadDeviceLib \
          -Imock
 
-TESTS = test_math test_i2c test_pmic test_keys dump_keys
+TESTS = test_math test_i2c test_cru test_pmic test_keys dump_keys
 
 all: $(TESTS)
-	@for t in test_math test_i2c; do echo "== $$t"; ./$$t || exit 1; done
+	@for t in test_math test_i2c test_cru; do echo "== $$t"; ./$$t || exit 1; done
 	@for a in 166 514 300 fail; do echo "== test_keys $$a"; ./test_keys $$a || exit 1; done
 	@for m in --bad-id --no-ack --init-fail; do echo "== test_pmic $$m"; ./test_pmic $$m || exit 1; done
 	@echo "== test_pmic with $(DTB)"; if [ -f $(DTB) ]; then ./test_pmic $(DTB) || exit 1; else echo "(no DTB, skipped)"; fi
@@ -41,6 +41,9 @@ LIBFDT = $(FDT)/fdt.c $(FDT)/fdt_ro.c $(FDT)/fdt_wip.c $(FDT)/fdt_strerror.c
 COMMON = mock/mocks.c
 
 test_math: test_math.c $(COMMON)
+	$(CC) $(CFLAGS) -o $@ $^
+
+test_cru: test_cru.c $(COMMON) $(RK)/RK3326Pkg/Library/CruLib/CruLib.c
 	$(CC) $(CFLAGS) -o $@ $^
 
 test_i2c: test_i2c.c $(COMMON) $(RK)/RK3326Pkg/Library/RkI2cLib/RkI2cLib.c

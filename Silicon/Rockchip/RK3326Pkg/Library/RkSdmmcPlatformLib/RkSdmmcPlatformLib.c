@@ -40,6 +40,7 @@ RkSdmmcGetCardPresenceState (
   VOID
   )
 {
-  return GpioPinRead (0, GPIO_PIN_PA3) ? RkSdmmcCardNotPresent
-                                             : RkSdmmcCardPresent;
+  // cd-gpios = <&gpio0 RK_PA3 GPIO_ACTIVE_LOW>: a card pulls the pin low.
+  return GpioPinGetLevel (0, GPIO_PIN_PA3) ? RkSdmmcCardNotPresent
+                                           : RkSdmmcCardPresent;
 }

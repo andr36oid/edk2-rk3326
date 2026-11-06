@@ -24,7 +24,6 @@
   gSiliciumPkgTokenSpaceGuid.PcdSmbiosProcessorModel|"Rockchip RK3326 @ 1.30 GHz"
   gSiliciumPkgTokenSpaceGuid.PcdSmbiosProcessorPartNumber|"RK3326"
 
-  gRockchipPkgTokenSpaceGuid.PcdRkSdmmcBaseAddress|0xFF370000
 
 [LibraryClasses]
   PlatformSecLib|RK3326Pkg/Library/PlatformSecLib/PlatformSecLib.inf
