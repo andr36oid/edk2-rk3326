@@ -9,6 +9,10 @@ size = 0x00300000
 
 [boot_shim]
 requires_kernel_header = true
+# Image header flag bit 3 ("place anywhere"): without it U-Boot's booti moves
+# the Image to DRAM bank 0 + text_offset, which on RK3326 (bank 0 starts after
+# BL31) is 0x02200000, and copies only image_size bytes of it.
+kernel_flags = 0x8
 
 [payload]
 type = "raw"
