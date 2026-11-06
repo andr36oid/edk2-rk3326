@@ -11,6 +11,12 @@
 [Components]
   RockchipPkg/Drivers/DesignWare/DwMmcHcDxe/DwMmcHcDxe.inf
   RockchipPkg/Drivers/DesignWare/RkSdmmcDxe/RkSdmmcDxe.inf
+  RockchipPkg/Drivers/DwUsbHostDxe/DwUsbHostDxe.inf {
+    <PcdsFixedAtBuild>
+      # Every init step logs at DEBUG_INFO, which the platform mask drops
+      gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x8007EE4F
+  }
+  MdeModulePkg/Bus/Usb/UsbMouseDxe/UsbMouseDxe.inf
   RockchipPkg/Drivers/RkFbDxe/RkFbDxe.inf
   RockchipPkg/Drivers/RkDisplayDxe/RkDisplayDxe.inf {
     <PcdsFixedAtBuild>

@@ -17,6 +17,7 @@
   RockchipPkg/RockchipPkg.dec
 
 [LibraryClasses]
+  ArmLib
   BaseLib
   BaseMemoryLib
   DebugLib

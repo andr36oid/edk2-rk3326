@@ -67,6 +67,7 @@
   # No buttons, no PMIC: the null instances
   BootKeysLib|Andr36oidPkg/Library/BootKeysLibNull/BootKeysLibNull.inf
   RkPmicLib|RockchipPkg/Library/RkPmicLibNull/RkPmicLibNull.inf
+  PowerCheckLib|Andr36oidPkg/Library/PowerCheckLibNull/PowerCheckLibNull.inf
   BootPlatformLib|qemuvirtPkg/Library/BootPlatformLib/BootPlatformLib.inf
 
 [Components]

@@ -17,6 +17,8 @@ typedef struct {
   BOOLEAN  Charging;
   BOOLEAN  PowerKeyPressed;   // latched press/release events, see RkPmicGetPowerStatus
   UINT32   BatteryMicroVolts; // 0 if unknown
+  BOOLEAN  BatteryPresent;    // CHRG_STS says a battery is connected
+  BOOLEAN  PowerKeyTap;       // a press and release both seen since the last call
 } RK_POWER_STATUS;
 
 /**
@@ -56,6 +58,17 @@ EFI_STATUS
 EFIAPI
 RkPmicGetPowerStatus (
   OUT RK_POWER_STATUS  *Status
+  );
+
+/**
+  Set the charger input and charge current limits the way U-Boot's fuel gauge
+  driver does (4.5 V input limit; 1500 mA in and out when a charger is
+  plugged, 450 mA otherwise).
+**/
+EFI_STATUS
+EFIAPI
+RkPmicSetChargerLimits (
+  VOID
   );
 
 /**

@@ -48,6 +48,7 @@
   CruLib|RK3326Pkg/Library/CruLib/CruLib.inf
   RkClockInitLib|RK3326Pkg/Library/RkClockInitLib/RkClockInitLib.inf
   RkSdmmcPlatformLib|RK3326Pkg/Library/RkSdmmcPlatformLib/RkSdmmcPlatformLib.inf
+  RkUsbPlatformLib|RK3326Pkg/Library/RkUsbPlatformLib/RkUsbPlatformLib.inf
 
   # The DesignWare MMC controllers are not cache coherent.
   DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf

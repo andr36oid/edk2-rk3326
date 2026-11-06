@@ -5,6 +5,7 @@
 **/
 
 #include <PiPei.h>
+#include <Library/ArmLib.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
@@ -84,6 +85,18 @@ PlatformPeim (
     Info.BootTags.TeeBase,
     Info.BootTags.TeeSize
     ));
+
+  // Linux takes the timer frequency from CNTFRQ (px30.dtsi gives none) and
+  // only the firmware at EL3 can set it; the EL tells what BL31 handed over.
+  {
+    UINT64  El;
+
+    __asm__ volatile ("mrs %0, CurrentEL" : "=r" (El));
+    DEBUG ((DEBUG_INFO, "RK3326: running at EL%u, CNTFRQ %u Hz\n", (UINT32)((El >> 2) & 3), (UINT32)ArmReadCntFrq ()));
+    if (ArmReadCntFrq () != 24000000) {
+      DEBUG ((DEBUG_WARN, "RK3326: CNTFRQ is not 24 MHz, Linux will use it as it is\n"));
+    }
+  }
 
   BuildGuidDataHob (&gRkPlatformInfoHobGuid, &Info, sizeof (Info));
   return EFI_SUCCESS;

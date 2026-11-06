@@ -1,0 +1,35 @@
+#/** @file
+#
+#  PX30 USB OTG host port: power domain, clocks, reset, PHY, 5 V supply.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+#**/
+
+[Defines]
+  INF_VERSION                    = 0x0001001A
+  BASE_NAME                      = RkUsbPlatformLib
+  FILE_GUID                      = 2d9a64c1-7e08-4f5b-a3d2-5c1b0e87f946
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = RkUsbPlatformLib
+
+[Sources]
+  RkUsbPlatformLib.c
+  RkUsbPlatformRegs.h
+  UsbVbusPolicy.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  CruLib
+  DebugLib
+  FdtLib
+  GpioLib
+  IoLib
+  RkPmicLib
+  TimerLib
