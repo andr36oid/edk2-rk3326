@@ -29,7 +29,8 @@ chainload: U-Boot (odroidgoa fork, /andr36oid/work/u-boot) ran boot.ini with the
   - PMUGRF OS_REG2/3 = DDR geometry (sdram_share.h encoders)
   - clocks as U-Boot's clk_px30.c leaves them (APLL 600, GPLL 1200, NPLL 1188,
     bus/peri dividers from the pmucru assigned-clocks)
-  - screen: lcd_init() (rockchip_display_cmds.c): VOPB WIN1 RGB888, rb_swap,
+  - screen: lcd_init() (rockchip_display_cmds.c): VOPB WIN1 RGB888 (rb_swap
+    set for GOADV, flipped back by set_plane on VOP 2.6, so clear),
     640x480 from U-Boot's panel timing (uboot-dtb), framebuffer at
     get_drm_memory() (video_reserve: below the page tables at the top of RAM,
     1 MB aligned, 3 MB FB + 32 MB pool), cleared, logo.bmp drawn by
@@ -420,7 +421,10 @@ def main():
             vss = h + mode['vfront-porch']
             hact_st, vact_st = htotal - hss, vtotal - vss
             regs[vop + 0x18] = 0                              # SYS_CTRL2: standby off
-            regs[vop + 0x90] = 1 | (1 << 4) | (1 << 12)       # WIN1: enable, RGB888, rb_swap
+            # WIN1: enable, RGB888, rb_swap clear: lcd_init() asks for rb_swap
+            # (CONFIG_PLATFORM_ODROID_GOADV), then rockchip_vop.c set_plane
+            # flips it back for RGB888 on VOP 2.6 ("PX30 treat rgb888 as bgr888")
+            regs[vop + 0x90] = 1 | (1 << 4)
             regs[vop + 0x98] = ((w * 24 + 31) // 32)          # xvir in words
             regs[vop + 0xA0] = drm_mem                        # yrgb_mst
             regs[vop + 0xA4] = ((h - 1) << 16) | (w - 1)      # dsp_info
