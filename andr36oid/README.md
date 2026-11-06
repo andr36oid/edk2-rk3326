@@ -301,6 +301,9 @@ U-Boot's board code as C, so the same card starts the same way either way.
   - `recovery.txt`, the one-shot eMMC test, device profiles;
   - Kernel Tweaks (`kernel-tweaks.txt`, `kt_args`);
   - DTB choice, kernel command line and `androidboot.*` arguments.
+- **Power check.** After U-Boot it runs first; on a start without U-Boot it
+  runs once BOOT's screen DTB has brought the panel up, so the charge and
+  low-battery screens are visible (U-Boot's order too).
 - **Menu.** It shows on request or when something fails. It can start Android,
   recovery or a USB stick, save the log, or power off. It works with buttons,
   a USB keyboard or a mouse.
@@ -399,8 +402,9 @@ The ones that would have broken a start:
 
 - **Hardware test M1.** Not run yet.
 - **Starts without U-Boot:**
-  - the charge screen is drawn before the panel is brought up;
-  - the USB-stick fallback has no 5 V when there is no BOOT with a DTB;
+  - the USB-stick fallback has no 5 V when there is no BOOT with a DTB. This
+    is deliberate: without the board DTB the board is unknown, and switching
+    5 V blind could fight a charger on boards that share the port;
   - the DC jack pin is GPIO0_B3 only (EE clones use GPIO3_A5, Soy Sauce
     GPIO3_C7);
   - no full boot-on rail pass yet (it would also set `vccio_sd` while the
