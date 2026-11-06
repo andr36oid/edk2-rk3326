@@ -1,0 +1,6 @@
+test_math
+test_i2c
+test_pmic
+test_keys
+dump_keys
+*.o
