@@ -53,7 +53,11 @@ BoardInitDxeEntry (
   Plan.Pins     = Plan.Force || !Chained;
   Plan.EmmcPins = Plan.Pins && FromEmmc;
 
-  DEBUG ((DEBUG_INFO, "BoardInit: %a\n", Chained ? "U-Boot ran before, checking only" : "no U-Boot, full init"));
+  DEBUG ((
+    DEBUG_INFO,
+    "BoardInit: %a\n",
+    !Chained ? "no U-Boot, full init" : (Plan.Force ? "U-Boot ran before, full init forced" : "U-Boot ran before, checking only")
+    ));
   BoardInitRun (&Plan);
 
   // Nothing to keep resident or publish.
