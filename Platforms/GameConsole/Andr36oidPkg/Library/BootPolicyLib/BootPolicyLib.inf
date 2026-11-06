@@ -1,0 +1,14 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = BootPolicyLib
+  FILE_GUID                      = 4C7A1E92-8B3D-4F06-A5E1-2D9C6B0F7E38
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = BootPolicyLib
+
+[Sources]
+  BootPolicy.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Andr36oidPkg/Andr36oidPkg.dec

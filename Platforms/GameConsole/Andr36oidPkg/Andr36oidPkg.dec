@@ -16,6 +16,15 @@
 [LibraryClasses]
   BootKeysLib|Include/Library/BootKeysLib.h
   LinuxBootLib|Include/Library/LinuxBootLib.h
+  BootPlatformLib|Include/Library/BootPlatformLib.h
+  BootPolicyLib|Include/Library/BootPolicyLib.h
 
 [Guids]
+  # FILE_GUID of Application/Andr36oidBoot (the boot option DeviceBootManagerLib puts first)
+  gAndr36oidBootAppFileGuid = { 0x1f3c9e57, 0x8a2b, 0x4d61, { 0x9c, 0x0e, 0x5b, 0x7d, 0x24, 0xa1, 0x6f, 0x83 } }
   gAndr36oidPkgTokenSpaceGuid = { 0x8f3b6a21, 0x4d7c, 0x4e19, { 0xb2, 0x5a, 0x6e, 0x0d, 0x91, 0xc4, 0x37, 0x8b } }
+
+[PcdsFeatureFlag]
+  # The serial port is the console (QEMU): put it in ConIn/ConOut, and don't
+  # copy the boot app's console lines into the log a second time.
+  gAndr36oidPkgTokenSpaceGuid.PcdBootSerialConsole|FALSE|BOOLEAN|0x00000001

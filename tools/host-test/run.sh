@@ -41,7 +41,10 @@ gcc "${CFLAGS[@]}" -o "$OUT/TestLinuxBoot" "$HERE/TestLinuxBoot.c" \
 
 dtc -q -I dts -O dtb -o "$OUT/kernel-test.dtb" "$HERE/kernel-test.dts"
 dtc -q -I dts -O dtb -o "$OUT/handover-test.dtb" "$HERE/handover-test.dts"
-REAL=/andr36oid/src/device/gameconsole/r36s/BOOT/rk3326-r36s-android.dtb
+# A real andr36oid Android DTB if you have one (the device repo builds it,
+# doesn't carry it): REAL_DTB=/path/rk3326-r36s-android.dtb tools/host-test/run.sh
+REAL=${REAL_DTB:-/andr36oid/src/device/gameconsole/r36s/BOOT/rk3326-r36s-android.dtb}
+rm -f "$OUT"/fixed-*.dtb
 
 echo "== TestLinuxBoot"
 "$OUT/TestLinuxBoot" "$OUT/kernel-test.dtb" "$OUT/handover-test.dtb" "$OUT" $( [ -f "$REAL" ] && echo "$REAL" )
@@ -89,7 +92,7 @@ if fdtget "$D" /chosen linux,initrd-start >/dev/null 2>&1; then
 else
     echo "ok   no initrd properties without an initrd"
 fi
-if [ -f "$OUT/fixed-real.dtb" ]; then
+if [ -f "$REAL" ]; then
     D=$OUT/fixed-real.dtb
     dtc -q -I dtb -O dts -o /dev/null "$D" && echo "ok   real DTB still parses" || { echo "FAIL real DTB"; fail=1; }
     expect "$D" /chosen bootargs "-ts" "fw_devlink=permissive rootwait androidboot.revision=rg351mp"
