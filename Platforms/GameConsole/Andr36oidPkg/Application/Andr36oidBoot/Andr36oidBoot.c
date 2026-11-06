@@ -32,6 +32,8 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 
+#define UBOOT_UNSEEDED_SERIAL  "c3d9b8674f4b94f6"
+
 #define KERNEL_MAX   SIZE_64MB
 #define RAMDISK_MAX  SIZE_64MB
 #define DTB_MAX      SIZE_1MB
@@ -152,7 +154,6 @@ GatherFacts (
   )
 {
   CONST CHAR8  *Args = NULL;
-  UINT8        CpuId[BOOT_CPU_ID_SIZE];
 
   ZeroMem (Facts, sizeof (*Facts));
   if (Pi->BootloaderFdt != 0) {
@@ -186,13 +187,15 @@ GatherFacts (
     Facts->RamMb = (UINT32)(Pi->DramSize >> 20);
   }
 
-  // U-Boot's serial#, else the one it would make from the CPU ID
+  // U-Boot's serial#, else the one U-Boot really ends up with on these
+  // consoles: vendor storage holds no SN and CONFIG_ROCKCHIP_EFUSE is off,
+  // so rockchip_set_serialno takes 8 bytes of rand(), never seeded
+  // (lib/rand.c y = 1): c3d9b8674f4b94f6 on every console. Keep it, so adb
+  // and the USB gadget see the same device whichever way it started.
+  // (Not read: a stock SN in vendor storage on an eMMC install.)
   if (Facts->SerialNo[0] == '\0') {
-    if (!EFI_ERROR (BootPlatformGetCpuId (CpuId)) && BootPolicySerialFromCpuId (CpuId, Facts->SerialNo, sizeof (Facts->SerialNo))) {
-      Say ("boot: serial number %a from the CPU ID\n", Facts->SerialNo);
-    } else {
-      Say ("boot: no CPU ID, androidboot.serialno stays empty\n");
-    }
+    AsciiStrCpyS (Facts->SerialNo, sizeof (Facts->SerialNo), UBOOT_UNSEEDED_SERIAL);
+    Say ("boot: serial number %a (U-Boot's, from unseeded rand())\n", Facts->SerialNo);
   }
 }
 

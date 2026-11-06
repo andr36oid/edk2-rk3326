@@ -135,13 +135,9 @@ BASE="fw_devlink=permissive rootwait consoleblank=0 swiotlb=1 coherent_pool=1m f
 CONSOLE="console=null loglevel=4 printk.time=1 vt.global_cursor_default=0 fiq_debugger.disable=1"
 FACTS="andr36oid.hwrev=rg351mp andr36oid.serialno=QEMU0001 andr36oid.ram_mb=1024 andr36oid.bootpart=1:1"
 K=$OUT/Image:Image
-# The serial number U-Boot would make from the QEMU device's fixed CPU ID
-# (CRC32 without complement, zlib's crc32 with the inversions undone).
-SERIAL=$(python3 -c '
-import zlib
-raw = lambda c, b: ~zlib.crc32(b, ~c & 0xffffffff) & 0xffffffff
-i = b"QEMU virt cpu id"
-lo = raw(0, i[1::2]); print("%x" % (raw(lo, i[0::2]) << 32 | lo))')
+# Without U-Boot's facts: U-Boot's own serial on these consoles (unseeded
+# rand(), the same on every console).
+SERIAL=c3d9b8674f4b94f6
 echo "== DTB: $DTB"
 RD="$OUT/ramdisk.uimg:ramdisk.uimg $OUT/ramdisk-stock.uimg:ramdisk-stock.uimg $OUT/ramdisk-recovery.uimg:ramdisk-recovery.uimg"
 
@@ -173,7 +169,7 @@ if want android; then
 fi
 
 # 2. EL1 (PSCI over HVC), recovery.txt, no facts from U-Boot (no -append):
-#    the board's own (QEMU: no buttons, v00, serial number from a fixed CPU ID).
+#    the board's own (QEMU: no buttons, v00, U-Boot's fixed serial number).
 if want recovery; then
     printf 'x\n' > "$OUT/recovery.txt"
     mkboot "$OUT/recovery.img" $K $RD "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" "$OUT/kt.txt:kernel-tweaks.txt" "$OUT/recovery.txt:recovery.txt" \
@@ -185,7 +181,7 @@ if want recovery; then
     count recovery "TESTKERNEL: RESULT PASS" 1
     hasnt recovery "TESTKERNEL: FAIL"
     onboot recovery uefi-log.txt "no facts from U-Boot"
-    onboot recovery uefi-log.txt "boot: serial number $SERIAL from the CPU ID"
+    onboot recovery uefi-log.txt "boot: serial number $SERIAL (U-Boot's"
     # hwrev v00: rg351p-uboot.dtb, here not a device tree
     has recovery "boot: screen: BOOT/rg351p-uboot.dtb is not a device tree"
 fi

@@ -112,6 +112,20 @@ BootPlatformGetInfo (
   }
 
   Info->DramSize          = Rk->DramSize;
+  if (Info->DramSize == 0) {
+    // No DDR record: the RAM top the UEFI's own memory map settled on
+    // (MemoryMapLib's fallback), so Linux never starts without /memory.
+    EFI_PEI_HOB_POINTERS  R;
+
+    for (R.Raw = GetHobList (); (R.Raw = GetNextHob (EFI_HOB_TYPE_RESOURCE_DESCRIPTOR, R.Raw)) != NULL;
+         R.Raw = GET_NEXT_HOB (R))
+    {
+      if (R.ResourceDescriptor->ResourceType == EFI_RESOURCE_SYSTEM_MEMORY) {
+        Info->DramSize = MAX (Info->DramSize, R.ResourceDescriptor->PhysicalStart + R.ResourceDescriptor->ResourceLength);
+      }
+    }
+  }
+
   if ((Rk->Version >= 2) && (GET_GUID_HOB_DATA_SIZE (Hob) >= sizeof (*Rk))) {
     if ((Rk->BootTags.BootDevType & RK_BOOT_DEVICE_EMMC) != 0) {
       Info->BootDevice = BootDeviceEmmc;
@@ -130,19 +144,19 @@ BootPlatformGetInfo (
 
   if ((Rk->Version >= 2) && (GET_GUID_HOB_DATA_SIZE (Hob) >= sizeof (*Rk)) &&
       (Rk->BootTags.TeeSize != 0) && (Rk->BootTags.TeeBase > LINUX_RAM_START) &&
-      (Rk->BootTags.TeeBase + Rk->BootTags.TeeSize < Rk->DramSize) &&
+      (Rk->BootTags.TeeBase + Rk->BootTags.TeeSize < Info->DramSize) &&
       ReservedAt (Rk->BootTags.TeeBase, Rk->BootTags.TeeSize))
   {
     TeeBase = Rk->BootTags.TeeBase;
     TeeEnd  = Rk->BootTags.TeeBase + Rk->BootTags.TeeSize;
   }
 
-  if (Rk->DramSize > TeeEnd) {
+  if (Info->DramSize > TeeEnd) {
     Info->MemoryCount    = 2;
     Info->Memory[0].Base = LINUX_RAM_START;
     Info->Memory[0].Size = TeeBase - LINUX_RAM_START;
     Info->Memory[1].Base = TeeEnd;
-    Info->Memory[1].Size = Rk->DramSize - TeeEnd;
+    Info->Memory[1].Size = Info->DramSize - TeeEnd;
   }
 
   return EFI_SUCCESS;
