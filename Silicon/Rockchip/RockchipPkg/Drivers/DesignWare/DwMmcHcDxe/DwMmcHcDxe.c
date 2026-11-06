@@ -280,6 +280,12 @@ DwMmcHcEnumerateDevice (
                &MediaPresent
                );
 
+    if (!MediaPresent) {
+      Private->Slot[0].IdentifyFailed = 0;
+    } else if (Private->Slot[0].IdentifyFailed >= DW_MMC_HC_IDENTIFY_TRIES) {
+      return;
+    }
+
     MediaChanged = Private->Slot[0].MediaPresent != MediaPresent;
 
     if (MediaChanged && !MediaPresent) {
@@ -347,9 +353,11 @@ DwMmcHcEnumerateDevice (
       Status                        = DwMmcHcIdentify (Private);
       if (EFI_ERROR (Status)) {
         //
-        // This card doesn't get initialized correctly. Look again next time.
+        // This card doesn't get initialized correctly. Look again a few
+        // times, then once it has been taken out.
         //
-        Private->Slot[0].MediaPresent = FALSE;
+        Private->Slot[0].MediaPresent   = FALSE;
+        Private->Slot[0].IdentifyFailed++;
         return;
       }
 
@@ -673,14 +681,16 @@ DwMmcHcDriverBindingStart (
 
   //
   // A card that is there but won't initialise is not an error for the
-  // driver: the slot is looked at again by DwMmcHcEnumerateDevice.
+  // driver: DwMmcHcEnumerateDevice tries again (a few times, then once
+  // it was taken out).
   //
   DwMmcHcCardDetect (Private->DevBase, Controller, 0, &Private->Slot[0].MediaPresent);
   if (Private->Slot[0].MediaPresent) {
     Status = DwMmcHcIdentify (Private);
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_WARN, "DwMmcHcDriverBindingStart: card not initialised: %r\n", Status));
-      Private->Slot[0].MediaPresent = FALSE;
+      Private->Slot[0].MediaPresent   = FALSE;
+      Private->Slot[0].IdentifyFailed = 1;
     }
   }
 

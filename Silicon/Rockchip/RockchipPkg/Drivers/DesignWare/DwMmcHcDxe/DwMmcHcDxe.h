@@ -48,11 +48,18 @@ extern EFI_DRIVER_BINDING_PROTOCOL   gDwMmcHcDriverBinding;
 // The unit is 100us, takes 100ms as interval.
 //
 #define DW_MMC_HC_ENUM_TIMER  EFI_TIMER_PERIOD_MILLISECONDS(100)
+#define DW_MMC_HC_IDENTIFY_TRIES  3
 
 typedef struct {
   BOOLEAN                 Enable;
   EFI_SD_MMC_SLOT_TYPE    SlotType;
   BOOLEAN                 MediaPresent;
+  // Identifications that failed while card detect said present. After
+  // DW_MMC_HC_IDENTIFY_TRIES the slot is left alone until card detect says
+  // absent (an eMMC slot without a chip, a dead card): retrying every
+  // enumeration tick floods the log and, at TPL_CALLBACK with long command
+  // timeouts, starves everything else.
+  UINT8                   IdentifyFailed;
   BOOLEAN                 Initialized;
   SD_MMC_CARD_TYPE        CardType;
 } DW_MMC_HC_SLOT;
