@@ -701,3 +701,29 @@ BootPolicyScreenDtbName (
 
   return "rg351p-uboot.dtb";
 }
+
+BOOLEAN
+EFIAPI
+BootPolicyIsUsbPath (
+  IN CONST VOID  *DevicePath OPTIONAL
+  )
+{
+  CONST UINT8  *Node = DevicePath;
+  UINTN        Length;
+  UINTN        Count;
+
+  for (Count = 0; (Node != NULL) && (Count < 64); Count++) {
+    Length = Node[2] | ((UINTN)Node[3] << 8);
+    if ((Node[0] == 0x7F) || (Length < 4)) {    // END_DEVICE_PATH_TYPE, or broken
+      return FALSE;
+    }
+
+    if ((Node[0] == 0x03) && (Node[1] == 0x05)) {   // MESSAGING_DEVICE_PATH, MSG_USB_DP
+      return TRUE;
+    }
+
+    Node += Length;
+  }
+
+  return FALSE;
+}

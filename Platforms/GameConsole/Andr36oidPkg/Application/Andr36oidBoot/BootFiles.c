@@ -15,6 +15,7 @@
 #include <Library/RkLogLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
+#include <Protocol/Usb2HostController.h>
 
 STATIC
 EFI_STATUS
@@ -114,6 +115,7 @@ BootOpenVolume (
   UINTN                            Pass;
   UINTN                            I;
   BOOT_DEVICE_KIND                 Got;
+  EFI_DEVICE_PATH_PROTOCOL         *Path;
   EFI_SIMPLE_FILE_SYSTEM_PROTOCOL  *Fs;
   EFI_FILE_PROTOCOL                *Root;
 
@@ -127,7 +129,8 @@ BootOpenVolume (
   // the platform can't place.
   for (Pass = 0; Pass < 2; Pass++) {
     for (I = 0; I < Count; I++) {
-      Got = BootPlatformDeviceKind (DevicePathFromHandle (Handles[I]));
+      Path = DevicePathFromHandle (Handles[I]);
+      Got  = BootPolicyIsUsbPath (Path) ? BootDeviceUsb : BootPlatformDeviceKind (Path);
       if (!((Pass == 0) && (Got == Kind)) && !((Pass == 1) && (Kind == BootDeviceSd) && (Got == BootDeviceUnknown))) {
         continue;
       }
@@ -138,7 +141,12 @@ BootOpenVolume (
         continue;
       }
 
-      if (BootFileExists (Root, BOOT_FILE_KERNEL) || BootFileExists (Root, BOOT_FILE_BOOT_INI)) {
+      // A USB stick only counts with everything a start needs on it.
+      if ((Kind == BootDeviceUsb) ?
+          (BootFileExists (Root, BOOT_FILE_KERNEL) && BootFileExists (Root, BOOT_FILE_RAMDISK) &&
+           BootFileExists (Root, BOOT_FILE_DTB) && BootFileExists (Root, BOOT_FILE_BOOT_INI)) :
+          (BootFileExists (Root, BOOT_FILE_KERNEL) || BootFileExists (Root, BOOT_FILE_BOOT_INI)))
+      {
         FreePool (Handles);
         return Root;
       }
@@ -149,6 +157,34 @@ BootOpenVolume (
 
   FreePool (Handles);
   return NULL;
+}
+
+EFI_FILE_PROTOCOL *
+BootOpenUsbVolume (
+  IN UINTN  WaitMs
+  )
+{
+  EFI_FILE_PROTOCOL  *Root;
+  EFI_HANDLE         *Handles;
+  UINTN              Count;
+  UINTN              Waited;
+
+  // Without a USB host there is nothing to wait for.
+  if (EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gEfiUsb2HcProtocolGuid, NULL, &Count, &Handles))) {
+    WaitMs = 0;
+  } else {
+    FreePool (Handles);
+  }
+
+  for (Waited = 0; ; Waited += 250) {
+    Root = BootOpenVolume (BootDeviceUsb);
+    if ((Root != NULL) || (Waited >= WaitMs)) {
+      return Root;
+    }
+
+    gBS->Stall (250 * 1000);
+    mConnected = FALSE;
+  }
 }
 
 EFI_STATUS

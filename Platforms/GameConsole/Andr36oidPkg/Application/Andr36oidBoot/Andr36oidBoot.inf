@@ -12,11 +12,13 @@
   Andr36oidBoot.h
   BootFiles.c
   BootMenu.c
+  BootScreen.c
 
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
   RockchipPkg/RockchipPkg.dec
+  SiliciumPkg/SiliciumPkg.dec
   Andr36oidPkg/Andr36oidPkg.dec
 
 [LibraryClasses]
@@ -27,6 +29,7 @@
   BootPolicyLib
   DebugLib
   DevicePathLib
+  FdtLib
   LinuxBootLib
   MemoryAllocationLib
   PcdLib
@@ -41,9 +44,16 @@
   UefiRuntimeServicesTableLib
 
 [Protocols]
+  gEfiGraphicsOutputProtocolGuid
   gEfiSimpleFileSystemProtocolGuid
+  gEfiSimpleTextInProtocolGuid
+  gEfiUsb2HcProtocolGuid
+  gKeypadDeviceProtocolGuid
+  gRkScreenFdtProtocolGuid
 
 [Guids]
+  gEfiConsoleOutDeviceGuid
+  gEfiGlobalVariableGuid
   gRkEmmcRequestEventGuid
 
 [FeaturePcd]

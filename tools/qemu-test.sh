@@ -20,9 +20,10 @@ FW=$ROOT/Mu-qemuvirt.bin
 DISK_ADDR=0x50000000        # PcdMemDiskBase
 DISK_MB=32                  # PcdMemDiskSize
 EMMC_ADDR=0x52000000        # the eMMC's BOOT image right after the SD card's
+USB_ADDR=0x54000000         # a USB stick's after that
 RAM_BASE_MB=1024            # guest RAM starts at 1 GB
 TIMEOUT=${QEMU_TIMEOUT:-180}
-CASES=" ${QEMU_CASES:-android recovery menu poweroff reset logo emmc emmctest emmcnative} "
+CASES=" ${QEMU_CASES:-android recovery menu poweroff reset logo emmc emmctest emmcnative usb usbfallback} "
 want() { [[ $CASES == *" $1 "* ]]; }
 mkdir -p "$OUT"
 fail=0
@@ -43,7 +44,7 @@ cmp -s "$OUT/Image-0" "$OUT/Image-0x10000000" || { echo "FAIL test kernel is not
 mv "$OUT/Image-0" "$OUT/Image"
 
 # Ramdisks: a payload the test kernel recognises, wrapped like mkimg.sh does.
-for rd in android:ramdisk stock:ramdisk-stock recovery:ramdisk-recovery emmc:ramdisk-emmc; do
+for rd in android:ramdisk stock:ramdisk-stock recovery:ramdisk-recovery emmc:ramdisk-emmc usb:ramdisk-usb; do
     name=${rd%%:*}; file=${rd#*:}
     { printf 'ANDR36OID-TEST-INITRD:%s\n' "$name"; head -c 300000 /dev/urandom | base64; printf 'INITRD-END\n'; } > "$OUT/$file.cpio"
     mkimage -A arm64 -O linux -T ramdisk -C none -n "andr36oid test $name" -d "$OUT/$file.cpio" "$OUT/$file.uimg" >/dev/null || exit 2
@@ -84,6 +85,8 @@ run() {
     [ -f "$OUT/$c.dtb" ] && args+=(-dtb "$OUT/$c.dtb")
     # An eMMC with its own BOOT
     [ -f "$OUT/$c-emmc.img" ] && args+=(-device loader,file="$OUT/$c-emmc.img",addr=$EMMC_ADDR,force-raw=on)
+    # A USB stick
+    [ -f "$OUT/$c-usb.img" ] && args+=(-device loader,file="$OUT/$c-usb.img",addr=$USB_ADDR,force-raw=on)
     echo "== $c ($machine)"
     python3 "$T/qemu-run.py" "$OUT/$c.log" "$TIMEOUT" "$@" -- qemu-system-aarch64 "${args[@]}"
     local code=$?
@@ -92,6 +95,8 @@ run() {
     dd if="$ram" of="$OUT/$c-after.img" bs=1M skip=$(( (DISK_ADDR >> 20) - RAM_BASE_MB )) count=$DISK_MB status=none
     [ -f "$OUT/$c-emmc.img" ] &&
         dd if="$ram" of="$OUT/$c-emmc-after.img" bs=1M skip=$(( (EMMC_ADDR >> 20) - RAM_BASE_MB )) count=$DISK_MB status=none
+    [ -f "$OUT/$c-usb.img" ] &&
+        dd if="$ram" of="$OUT/$c-usb-after.img" bs=1M skip=$(( (USB_ADDR >> 20) - RAM_BASE_MB )) count=$DISK_MB status=none
     rm -f "$ram"
     if [ $code = 0 ]; then echo "ok   $c: QEMU powered off"; else echo "FAIL $c: QEMU exit $code (124 = timeout)"; fail=1; fi
 }
@@ -116,6 +121,10 @@ noboot() {   # <case> <file>: the firmware did not write it
 onemmc() {   # <case> <file> <text>: in a file the firmware wrote to the eMMC's BOOT
     if mtype -i "$OUT/$1-emmc-after.img" "::$2" 2>/dev/null | tr -d '\r' | grep -qF -- "$3"; then
         echo "ok   $1: eMMC BOOT/$2 has '$3'"; else echo "FAIL $1: eMMC BOOT/$2 lacks '$3'"; fail=1; fi
+}
+onusb() {    # <case> <file> <text>: in a file the firmware wrote to the USB stick
+    if mtype -i "$OUT/$1-usb-after.img" "::$2" 2>/dev/null | tr -d '\r' | grep -qF -- "$3"; then
+        echo "ok   $1: USB stick $2 has '$3'"; else echo "FAIL $1: USB stick $2 lacks '$3'"; fail=1; fi
 }
 onboot() {   # <case> <file> <text>: in a file the firmware wrote to BOOT
     if mtype -i "$OUT/$1-after.img" "::$2" 2>/dev/null | tr -d '\r' | grep -qF -- "$3"; then
@@ -143,7 +152,7 @@ if want android; then
     printf 'kt_args=qemu_test.kt=1 qemu_test.reset_once\n' > "$OUT/kt.txt"
     printf 'emmc_test=start\n' > "$OUT/emmc-test.txt"
     mkboot "$OUT/android.img" $K $RD "$DTB:rk3326-r36s-android.dtb" "$OUT/boot.ini-profile:boot.ini" "$OUT/kt.txt:kernel-tweaks.txt" \
-        "$OUT/emmc-test.txt:emmc-test.txt" || exit 2
+        "$OUT/emmc-test.txt:emmc-test.txt" "$DTB:rg351mp-uboot.dtb" || exit 2
     run android "virt,virtualization=on,gic-version=2" "$FACTS"
     has android "TESTKERNEL: started at EL2"
     line android "TESTKERNEL: bootargs=$BASE androidboot.lcd_density=304 androidboot.revision=rg351mp androidboot.serialno=QEMU0001 androidboot.boot_devices=ff370000.dwmmc $CONSOLE qemu_test.kt=1 qemu_test.reset_once"
@@ -159,13 +168,16 @@ if want android; then
     # emmc-test.txt said start, but there is no eMMC: marked tried, SD start
     has android "boot: eMMC test: eMMC not readable here"
     onboot android emmc-test.txt "emmc_test=tried"
+    # The screen DTB for hwrev rg351mp goes to the display driver
+    has android "boot: screen: BOOT/rg351mp-uboot.dtb ($(stat -c %s "$DTB") bytes) for the display: Success"
 fi
 
 # 2. EL1 (PSCI over HVC), recovery.txt, no facts from U-Boot (no -append):
 #    the board's own (QEMU: no buttons, v00, serial number from a fixed CPU ID).
 if want recovery; then
     printf 'x\n' > "$OUT/recovery.txt"
-    mkboot "$OUT/recovery.img" $K $RD "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" "$OUT/kt.txt:kernel-tweaks.txt" "$OUT/recovery.txt:recovery.txt" || exit 2
+    mkboot "$OUT/recovery.img" $K $RD "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" "$OUT/kt.txt:kernel-tweaks.txt" "$OUT/recovery.txt:recovery.txt" \
+        "$OUT/recovery.txt:rg351p-uboot.dtb" || exit 2
     run recovery "virt,gic-version=2" ""
     has recovery "TESTKERNEL: started at EL1"
     line recovery "TESTKERNEL: bootargs=$BASE androidboot.revision=v00 androidboot.serialno=$SERIAL androidboot.boot_devices=ff370000.dwmmc $CONSOLE dw_mmc_rockchip.builtin_emmc=1"
@@ -174,6 +186,8 @@ if want recovery; then
     hasnt recovery "TESTKERNEL: FAIL"
     onboot recovery uefi-log.txt "no facts from U-Boot"
     onboot recovery uefi-log.txt "boot: serial number $SERIAL from the CPU ID"
+    # hwrev v00: rg351p-uboot.dtb, here not a device tree
+    has recovery "boot: screen: BOOT/rg351p-uboot.dtb is not a device tree"
 fi
 
 # 3. A failed start (no ramdisk.uimg) opens the menu; Save log, then Recovery.
@@ -283,6 +297,38 @@ if want emmcnative; then
     has emmcnative "TESTKERNEL: initrd name=emmc"
     count emmcnative "TESTKERNEL: RESULT PASS" 1
     onemmc emmcnative uefi-log.txt "boot: starting Linux"
+fi
+
+# 10. A failed SD start (no ramdisk.uimg) with a USB stick in: the menu has
+# "Start from the USB stick" (5.), which starts the stick's system with the
+# same decisions; boot_devices stays the SD card's controller, the log goes
+# to the stick.
+USB_RD="$OUT/ramdisk-usb.uimg:ramdisk.uimg"
+if want usb; then
+    mkboot "$OUT/usb.img" $K "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" || exit 2
+    mkboot "$OUT/usb-usb.img" $K "$USB_RD" "$DTB:rk3326-r36s-android.dtb" "$OUT/boot.ini-profile:boot.ini" || exit 2
+    run usb "virt,virtualization=on,gic-version=2" "$FACTS" --when "5. Start from the USB stick" --send 5
+    has usb "Could not read BOOT/ramdisk.uimg"
+    has usb "boot: menu: Start from the USB stick"
+    has usb "boot: starting from the USB stick"
+    line usb "TESTKERNEL: bootargs=$BASE androidboot.lcd_density=304 androidboot.revision=rg351mp androidboot.serialno=QEMU0001 androidboot.boot_devices=ff370000.dwmmc $CONSOLE"
+    has usb "TESTKERNEL: initrd name=usb"
+    count usb "TESTKERNEL: RESULT PASS" 1
+    onusb usb uefi-log.txt "boot: starting Linux"
+    onboot usb uefi-log.txt "Could not read BOOT/ramdisk.uimg"
+fi
+
+# 11. No BOOT on the SD card (empty) and no eMMC: the USB stick, logged.
+if want usbfallback; then
+    mkboot "$OUT/usbfallback.img" || exit 2
+    mkboot "$OUT/usbfallback-usb.img" $K "$USB_RD" "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" || exit 2
+    run usbfallback "virt,virtualization=on,gic-version=2" "$FACTS"
+    has usbfallback "boot: no BOOT on the SD card or the eMMC, starting from the USB stick"
+    line usbfallback "TESTKERNEL: bootargs=$BASE androidboot.revision=rg351mp androidboot.serialno=QEMU0001 androidboot.boot_devices=ff370000.dwmmc $CONSOLE"
+    has usbfallback "TESTKERNEL: initrd name=usb"
+    count usbfallback "TESTKERNEL: RESULT PASS" 1
+    onusb usbfallback uefi-log.txt "starting from the USB stick"
+    noboot usbfallback uefi-log.txt
 fi
 
 [ $fail = 0 ] && echo "== QEMU tests passed" || { echo "== QEMU tests FAILED (logs in $OUT/*.txt)"; exit 1; }

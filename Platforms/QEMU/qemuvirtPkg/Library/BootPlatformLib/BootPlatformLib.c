@@ -77,3 +77,12 @@ BootPlatformDeviceKind (
 
   return BootDeviceUnknown;
 }
+
+EFI_STATUS
+EFIAPI
+BootPlatformUsbPower (
+  IN CONST VOID  *BoardFdt
+  )
+{
+  return EFI_UNSUPPORTED;
+}

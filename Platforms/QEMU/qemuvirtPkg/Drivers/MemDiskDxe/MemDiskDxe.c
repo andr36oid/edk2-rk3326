@@ -2,7 +2,9 @@
   Block devices over RAM regions: the BOOT FAT images tools/qemu-test.sh
   loads into the guest (-device loader). qemu has no SD/eMMC controller the
   firmware drives, so these stand in for the SD card's BOOT partition (at
-  PcdMemDiskBase) and the eMMC's (right after it, only if an image is there).
+  PcdMemDiskBase), the eMMC's (right after it) and a USB stick's (after
+  that; its device path has a USB() node), the last two only if an image is
+  there.
   Like RkSdmmcDxe, the eMMC shows up at start only when the bootloader's
   bootargs say andr36oid.bootpart=0:..., else when gRkEmmcRequestEventGuid
   is signalled. With the guest RAM in a shared file the script reads back
@@ -31,9 +33,15 @@ typedef struct {
 } MEM_DISK_DEVICE_PATH;
 
 typedef struct {
+  VENDOR_DEVICE_PATH          Vendor;
+  USB_DEVICE_PATH             Usb;
+  EFI_DEVICE_PATH_PROTOCOL    End;
+} MEM_DISK_USB_DEVICE_PATH;
+
+typedef struct {
   CONST CHAR8                 *Name;
   EFI_PHYSICAL_ADDRESS        Base;
-  MEM_DISK_DEVICE_PATH        DevicePath;
+  VOID                        *DevicePath;
   EFI_BLOCK_IO_MEDIA          Media;
   EFI_BLOCK_IO_PROTOCOL       BlockIo;
   EFI_HANDLE                  Handle;
@@ -42,11 +50,25 @@ typedef struct {
 #define END_NODE  { END_DEVICE_PATH_TYPE, END_ENTIRE_DEVICE_PATH_SUBTYPE, { sizeof (EFI_DEVICE_PATH_PROTOCOL), 0 } }
 #define VENDOR(...)  { { HARDWARE_DEVICE_PATH, HW_VENDOR_DP, { sizeof (VENDOR_DEVICE_PATH), 0 } }, __VA_ARGS__ }
 
-STATIC MEM_DISK  mDisks[2] = {
-  // gQemuVirtMemDiskGuid: the SD card
-  { "SD", 0, { VENDOR ({ 0x93f1a6c5, 0x2e48, 0x4b7d, { 0x8a, 0x0c, 0x51, 0xe9, 0x3d, 0x76, 0xb2, 0x4f } }), END_NODE } },
-  // gQemuVirtMemDiskEmmcGuid: the eMMC
-  { "eMMC", 0, { VENDOR ({ 0x6a3c1f80, 0x4d2e, 0x4b19, { 0x9f, 0x57, 0x0e, 0x84, 0xb3, 0x2a, 0x61, 0xd5 } }), END_NODE } }
+// gQemuVirtMemDiskGuid: the SD card
+STATIC MEM_DISK_DEVICE_PATH  mSdPath = {
+  VENDOR ({ 0x93f1a6c5, 0x2e48, 0x4b7d, { 0x8a, 0x0c, 0x51, 0xe9, 0x3d, 0x76, 0xb2, 0x4f } }), END_NODE
+};
+// gQemuVirtMemDiskEmmcGuid: the eMMC
+STATIC MEM_DISK_DEVICE_PATH  mEmmcPath = {
+  VENDOR ({ 0x6a3c1f80, 0x4d2e, 0x4b19, { 0x9f, 0x57, 0x0e, 0x84, 0xb3, 0x2a, 0x61, 0xd5 } }), END_NODE
+};
+// A USB stick on port 0 of a made-up host controller
+STATIC MEM_DISK_USB_DEVICE_PATH  mUsbPath = {
+  VENDOR ({ 0x2f9e0b6d, 0x71c4, 0x4e8a, { 0xb3, 0x5d, 0x0c, 0x6a, 0x94, 0x1e, 0x27, 0x8f } }),
+  { { MESSAGING_DEVICE_PATH, MSG_USB_DP, { sizeof (USB_DEVICE_PATH), 0 } }, 0, 0 },
+  END_NODE
+};
+
+STATIC MEM_DISK  mDisks[3] = {
+  { "SD",   0, &mSdPath   },
+  { "eMMC", 0, &mEmmcPath },
+  { "USB",  0, &mUsbPath  }
 };
 
 STATIC
@@ -161,7 +183,7 @@ AddDisk (
                 &gEfiBlockIoProtocolGuid,
                 &Disk->BlockIo,
                 &gEfiDevicePathProtocolGuid,
-                &Disk->DevicePath,
+                Disk->DevicePath,
                 NULL
                 );
 }
@@ -210,6 +232,17 @@ BootpartIsEmmc (
   return (Args != NULL) && (Len > 0) && (AsciiStrStr (Args, "andr36oid.bootpart=0:") != NULL);
 }
 
+STATIC
+BOOLEAN
+Loaded (
+  IN CONST MEM_DISK  *Disk
+  )
+{
+  CONST UINT8  *Sector = (CONST UINT8 *)(UINTN)Disk->Base;
+
+  return (Sector[510] == 0x55) && (Sector[511] == 0xAA);
+}
+
 EFI_STATUS
 EFIAPI
 MemDiskDxeInitialize (
@@ -218,14 +251,18 @@ MemDiskDxeInitialize (
   )
 {
   EFI_EVENT    Event;
-  CONST UINT8  *Emmc;
+  UINTN        I;
 
-  mDisks[0].Base = FixedPcdGet64 (PcdMemDiskBase);
-  mDisks[1].Base = FixedPcdGet64 (PcdMemDiskBase) + FixedPcdGet64 (PcdMemDiskSize);
+  for (I = 0; I < ARRAY_SIZE (mDisks); I++) {
+    mDisks[I].Base = FixedPcdGet64 (PcdMemDiskBase) + I * FixedPcdGet64 (PcdMemDiskSize);
+  }
 
-  // No eMMC image loaded: no boot sector signature, no eMMC.
-  Emmc = (CONST UINT8 *)(UINTN)mDisks[1].Base;
-  if ((Emmc[510] == 0x55) && (Emmc[511] == 0xAA)) {
+  // No image loaded there: no boot sector signature, no such disk.
+  if (Loaded (&mDisks[2])) {
+    AddDisk (&mDisks[2]);
+  }
+
+  if (Loaded (&mDisks[1])) {
     if (BootpartIsEmmc ()) {
       AddDisk (&mDisks[1]);
     } else {

@@ -13,6 +13,7 @@
 #include <Library/HobLib.h>
 #include <Library/IoLib.h>
 #include <Library/MemoryAllocationLib.h>
+#include <Library/RkUsbPlatformLib.h>
 #include <Library/TimerLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/NonDiscoverableDevice.h>
@@ -268,4 +269,29 @@ BootPlatformDeviceKind (
   }
 
   return BootDeviceUnknown;
+}
+
+EFI_STATUS
+EFIAPI
+BootPlatformUsbPower (
+  IN CONST VOID  *BoardFdt
+  )
+{
+  EFI_STATUS  Status;
+  EFI_HANDLE  *Handles;
+  UINTN       Count;
+  UINTN       I;
+
+  if (EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gRkUsbHostControllerGuid, NULL, &Count, &Handles))) {
+    return EFI_UNSUPPORTED;
+  }
+
+  // DwUsbHostDxe had no board DTB at its start (RkUsbPlatformApplyFdt (NULL)).
+  Status = RkUsbPlatformApplyFdt (BoardFdt);
+  for (I = 0; I < Count; I++) {
+    gBS->ConnectController (Handles[I], NULL, NULL, TRUE);
+  }
+
+  FreePool (Handles);
+  return Status;
 }

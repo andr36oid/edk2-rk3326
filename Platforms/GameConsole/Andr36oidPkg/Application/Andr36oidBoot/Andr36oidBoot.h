@@ -31,13 +31,23 @@ Say (
 // BootFiles.c
 
 /**
-  Root of the first FAT volume on that storage that has Image or boot.ini.
-  On a device whose storage can't be told apart (Unknown), any volume with
-  them counts as the SD card. NULL if none.
+  Root of the first FAT volume on that storage that has Image or boot.ini
+  (a USB stick: Image, ramdisk.uimg, the DTB and boot.ini). On a device
+  whose storage can't be told apart (Unknown), any volume with them counts
+  as the SD card. NULL if none.
 **/
 EFI_FILE_PROTOCOL *
 BootOpenVolume (
   IN BOOT_DEVICE_KIND  Kind
+  );
+
+/**
+  BootOpenVolume (BootDeviceUsb), waiting up to WaitMs for a stick to show
+  up if there is a USB host.
+**/
+EFI_FILE_PROTOCOL *
+BootOpenUsbVolume (
+  IN UINTN  WaitMs
   );
 
 /**
@@ -94,12 +104,38 @@ BootSaveLogs (
 /**
   The boot menu on the console: d-pad/A through BootKeysLib, arrows/Enter or
   the item's number on a keyboard. Returns what to start; Save log and Power
-  off are handled inside. Root may be NULL (no BOOT found).
+  off are handled inside. Root may be NULL (no BOOT found). "Start from the
+  USB stick" is there while one with BOOT files is in; picking it returns
+  BootChoiceAndroid with FromUsb set.
 **/
 BOOT_CHOICE
 BootMenu (
-  IN EFI_FILE_PROTOCOL  *Root,
-  IN CONST CHAR8        *Message OPTIONAL
+  IN  EFI_FILE_PROTOCOL  *Root,
+  IN  CONST CHAR8        *Message OPTIONAL,
+  OUT BOOLEAN            *FromUsb
+  );
+
+// BootScreen.c
+
+/**
+  The screen: hand the display driver this board's screen DTB from Root
+  (once; Root may be NULL), then put every display on the console, so the
+  menu shows on a panel that came up late (no U-Boot) too.
+**/
+VOID
+BootScreenSetup (
+  IN EFI_FILE_PROTOCOL  *Root OPTIONAL,
+  IN CONST CHAR8        *HwRev
+  );
+
+/**
+  The framebuffer the display scans out now (Graphics Output). FALSE if
+  there is no display.
+**/
+BOOLEAN
+BootScreenFramebuffer (
+  OUT UINT64  *Base,
+  OUT UINT64  *Size
   );
 
 /**

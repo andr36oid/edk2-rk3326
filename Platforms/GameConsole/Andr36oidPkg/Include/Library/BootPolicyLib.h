@@ -165,4 +165,15 @@ BootPolicyScreenDtbName (
   IN CONST CHAR8  *HwRev
   );
 
+/**
+  TRUE if the device path runs through a USB device (a USB() node, which
+  UsbBusDxe puts in every device's path): a USB stick, not the SD card or
+  the eMMC. A node shorter than its header ends the walk, as do 64 nodes.
+**/
+BOOLEAN
+EFIAPI
+BootPolicyIsUsbPath (
+  IN CONST VOID  *DevicePath OPTIONAL
+  );
+
 #endif

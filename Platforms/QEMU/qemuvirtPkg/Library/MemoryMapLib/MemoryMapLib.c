@@ -72,7 +72,7 @@ BuildMap (
   EFI_PHYSICAL_ADDRESS     StackEnd  = StackBase + FixedPcdGet32 (PcdCPUCorePrimaryStackSize);
   EFI_PHYSICAL_ADDRESS     HeapEnd   = StackEnd + DXE_HEAP_SIZE;
   EFI_PHYSICAL_ADDRESS     DiskBase  = FixedPcdGet64 (PcdMemDiskBase);
-  EFI_PHYSICAL_ADDRESS     DiskEnd   = DiskBase + 2 * FixedPcdGet64 (PcdMemDiskSize);   // SD, eMMC
+  EFI_PHYSICAL_ADDRESS     DiskEnd   = DiskBase + 3 * FixedPcdGet64 (PcdMemDiskSize);   // SD, eMMC, USB
   EFI_PHYSICAL_ADDRESS     RamTop;
 
   QemuVirtGetPlatformInfo (&Info);
