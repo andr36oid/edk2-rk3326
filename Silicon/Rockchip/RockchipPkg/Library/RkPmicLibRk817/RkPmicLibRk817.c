@@ -229,8 +229,10 @@ RkPmicSetRegulator (
 {
   EFI_STATUS    Status;
   CONST CHAR8   *Name;
-  CONST UINT32  *Prop;
-  INT32         Len;
+  CONST UINT32  *Min;
+  CONST UINT32  *Max;
+  INT32         MinLen;
+  INT32         MaxLen;
   UINT32        MicroVolts;
   BOOLEAN       HaveVolts;
 
@@ -243,10 +245,17 @@ RkPmicSetRegulator (
     return Status;
   }
 
-  Name = FdtGetName (Fdt, RegulatorNode, NULL);
-  Prop = FdtGetProp (Fdt, RegulatorNode, "regulator-min-microvolt", &Len);
-  HaveVolts  = (Prop != NULL) && (Len >= 4);
-  MicroVolts = HaveVolts ? Fdt32ToCpu (*Prop) : 0;
+  //
+  // Only a fixed rail (min == max) gets its voltage written, as in U-Boot
+  // (REGULATOR_FLAG_AUTOSET_UV) and RkPmicEnableBootOn: a ranged one (the
+  // 4.7-5.4 V boost, the 1.8-3.0 V SD supply) keeps the level it has, as the
+  // kernel leaves it unless a driver asks for one.
+  //
+  Name       = FdtGetName (Fdt, RegulatorNode, NULL);
+  Min        = FdtGetProp (Fdt, RegulatorNode, "regulator-min-microvolt", &MinLen);
+  Max        = FdtGetProp (Fdt, RegulatorNode, "regulator-max-microvolt", &MaxLen);
+  HaveVolts  = (Min != NULL) && (Max != NULL) && (MinLen >= 4) && (MaxLen >= 4) && (*Min == *Max);
+  MicroVolts = HaveVolts ? Fdt32ToCpu (*Min) : 0;
 
   return SetRegulatorByName (Name, MicroVolts, HaveVolts, Enable);
 }

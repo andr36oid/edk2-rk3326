@@ -212,6 +212,8 @@ typedef struct {
   BOOLEAN    DcNeedsPower;        // andr36oid,dc-det-needs-power: pin AND PMIC
   INT32      BoostNode;           // PMIC boost regulator node, -1 if none
   INT32      OtgSwitchNode;       // PMIC OTG switch (boost to the port), -1 if none
+  BOOLEAN    BoostBootOn;         // regulator-boot-on or -always-on in the DT
+  BOOLEAN    OtgSwitchBootOn;
   BOOLEAN    BoostOnlyForOtg;
   BOOLEAN    HostSupplyProp;
 } USB_BOARD;
@@ -344,9 +346,13 @@ ScanBoard (
           Board->HostActiveHigh = EnableHigh;
         }
       } else if (AsciiStrCmp (Name, "boost") == 0) {
-        Board->BoostNode = Node;
+        Board->BoostNode   = Node;
+        Board->BoostBootOn = (FdtGetProp (Fdt, Node, "regulator-boot-on", &Len) != NULL) ||
+                             (FdtGetProp (Fdt, Node, "regulator-always-on", &Len) != NULL);
       } else if (AsciiStrCmp (Name, "otg_switch") == 0) {
-        Board->OtgSwitchNode = Node;
+        Board->OtgSwitchNode   = Node;
+        Board->OtgSwitchBootOn = (FdtGetProp (Fdt, Node, "regulator-boot-on", &Len) != NULL) ||
+                                 (FdtGetProp (Fdt, Node, "regulator-always-on", &Len) != NULL);
       }
     }
 
@@ -493,6 +499,19 @@ RkUsbPlatformApplyFdt (
 
     if (Board.OtgSwitchNode >= 0) {
       DEBUG ((DEBUG_INFO, "USB: OTG switch on: %r\n", RkPmicSetRegulator (Fdt, Board.OtgSwitchNode, TRUE)));
+    }
+  } else {
+    //
+    // Everywhere else the DT has them boot-on (genuine R36S, EE boards):
+    // U-Boot's boot-on pass turned them on; on a start without U-Boot nothing
+    // else does, and the port has no 5 V. After U-Boot this changes nothing.
+    //
+    if ((Board.BoostNode >= 0) && Board.BoostBootOn) {
+      DEBUG ((DEBUG_INFO, "USB: boost (boot-on) on: %r\n", RkPmicSetRegulator (Fdt, Board.BoostNode, TRUE)));
+    }
+
+    if ((Board.OtgSwitchNode >= 0) && Board.OtgSwitchBootOn) {
+      DEBUG ((DEBUG_INFO, "USB: OTG switch (boot-on) on: %r\n", RkPmicSetRegulator (Fdt, Board.OtgSwitchNode, TRUE)));
     }
   }
 

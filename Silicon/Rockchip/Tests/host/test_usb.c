@@ -286,7 +286,8 @@ static void test_boards (const char *dir)
   // genuine R36S: no vcc_host, no boost-only: nothing to switch
   snprintf (path, sizeof (path), "%s/rk3326-r36s-android-panel0.dtb", root);
   mock_delay_us = 0; run_dtb (path, 0, 0, out, &st);
-  printf ("  R36S:        %s\n", out); CHECK_EQ (st, EFI_SUCCESS); CHECK_EQ (gpio_log_n, 0); CHECK_EQ (boost_calls_on + boost_calls_off, 0);
+  printf ("  R36S:        %s\n", out); CHECK_EQ (st, EFI_SUCCESS); CHECK_EQ (gpio_log_n, 0); CHECK_EQ (boost_calls_off, 0);
+  CHECK_EQ (strcmp (reg_log, "BO"), 0);                       // boot-on boost and OTG switch: on (no-op after U-Boot)
   mock_delay_us = 0; run_dtb (path, 1, 1, out, &st);          // charger in: still host
   CHECK_EQ (st, EFI_SUCCESS); CHECK_EQ (mock_delay_us, 0);
 
@@ -298,7 +299,7 @@ static void test_boards (const char *dir)
   CHECK_EQ (gpio_log_n, 1);
   CHECK_EQ (gpio_log[0].bank, 3); CHECK_EQ (gpio_log[0].pin, 4); CHECK_EQ (gpio_log[0].val, 1);
   CHECK_EQ (gpio_dir[3][4], GPIO_PIN_OUTPUT); CHECK_EQ (gpio_func[3][4], 0);
-  CHECK_EQ (boost_calls_on + boost_calls_off, 0);
+  CHECK_EQ (boost_calls_off, 0); CHECK_EQ (strcmp (reg_log, "BO"), 0);
   mock_delay_us = 0; run_dtb (path, 1, 1, out, &st);          // charger in: still host (port not shared)
   CHECK_EQ (st, EFI_SUCCESS); CHECK_EQ (gpio_val[3][4], 1);
 

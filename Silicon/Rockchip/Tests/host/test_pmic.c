@@ -202,6 +202,21 @@ static void test_dtb (void *fdt)
   CHECK_EQ (dev[0xD8], 108);
   CHECK_EQ (dev[0xB3] & 0x04, 0x04);
 
+  // ranged rails: enabled, voltage left alone (BOOST 5.0-5.4 V, LDO6 vcc_sd 1.8-3.0 V)
+  reset_dev ();
+  dev[0xDE] = 0x03; dev[0xD6] = 0x5A;
+  write_log_n = 0;
+  n = find_reg (fdt, "BOOST");
+  CHECK (n >= 0);
+  CHECK_EQ (RkPmicSetRegulator (fdt, n, TRUE), EFI_SUCCESS);
+  CHECK (!wrote (0xDE)); CHECK_EQ (dev[0xDE], 0x03);
+  CHECK_EQ (dev[0xB4] & 0x02, 0x02);
+  n = find_reg (fdt, "LDO_REG6");
+  CHECK (n >= 0);
+  CHECK_EQ (RkPmicSetRegulator (fdt, n, TRUE), EFI_SUCCESS);
+  CHECK (!wrote (0xD6)); CHECK_EQ (dev[0xD6], 0x5A);
+  CHECK_EQ (dev[0xB3] & 0x02, 0x02);
+
   CHECK_EQ (RkPmicSetRegulator (fdt, -1, TRUE), EFI_INVALID_PARAMETER);
   CHECK_EQ (RkPmicSetRegulator (NULL, 0, TRUE), EFI_INVALID_PARAMETER);
   // a node that is not a regulator
