@@ -38,6 +38,8 @@ typedef struct {
   UINT32    Row;
   UINT32    ScreenOff;
   UINT32    HandedOff;      // set right before Linux starts, see RkLogHandoff
+  UINT32    UartDead;       // UART2 never took a byte: stop waiting for it
+  UINT32    Reserved;
 } LOG_HEADER;
 
 #define CURRENT   ((LOG_HEADER *)(UINTN)RK_LOG_BASE)
@@ -54,6 +56,9 @@ typedef struct {
 #define UART_THR  0x00
 #define UART_LSR  0x14
 #define UART_LSR_THRE  BIT5
+
+// A byte takes ~87 us at 115200; this is several ms of polling.
+#define UART_WAIT_POLLS  100000
 
 STATIC
 VOID
@@ -205,11 +210,21 @@ SerialPortWrite (
     DATA (H)[H->Written % H->DataSize] = (CHAR8)Buffer[Index];
     H->Written++;
     ScreenPutChar (H, (CHAR8)Buffer[Index]);
-    if (FixedPcdGetBool (PcdRkLogUart)) {
+    if (FixedPcdGetBool (PcdRkLogUart) && !H->UartDead) {
+      UINTN  Polls = 0;
+
+      // Unclocked or muxed away (GPIO2_B4/B6 left to other uses), THRE never
+      // sets: give up on the UART instead of hanging the firmware.
       while ((MmioRead32 (RK3326_UART2_BASE + UART_LSR) & UART_LSR_THRE) == 0) {
+        if (++Polls >= UART_WAIT_POLLS) {
+          H->UartDead = 1;
+          break;
+        }
       }
 
-      MmioWrite32 (RK3326_UART2_BASE + UART_THR, Buffer[Index]);
+      if (!H->UartDead) {
+        MmioWrite32 (RK3326_UART2_BASE + UART_THR, Buffer[Index]);
+      }
     }
   }
 
