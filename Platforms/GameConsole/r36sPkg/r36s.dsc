@@ -44,3 +44,6 @@
 
 [Components]
   Andr36oidPkg/Library/BootKeysLibNull/BootKeysLibNull.inf
+
+# andr36oid boot app, Linux handoff, boot order (last, so its mappings win)
+!include Andr36oidPkg/Andr36oidPkg.dsc.inc

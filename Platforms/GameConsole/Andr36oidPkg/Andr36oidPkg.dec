@@ -15,6 +15,7 @@
 
 [LibraryClasses]
   BootKeysLib|Include/Library/BootKeysLib.h
+  LinuxBootLib|Include/Library/LinuxBootLib.h
 
 [Guids]
   gAndr36oidPkgTokenSpaceGuid = { 0x8f3b6a21, 0x4d7c, 0x4e19, { 0xb2, 0x5a, 0x6e, 0x0d, 0x91, 0xc4, 0x37, 0x8b } }
