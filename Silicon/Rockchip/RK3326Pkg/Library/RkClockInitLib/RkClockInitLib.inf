@@ -1,0 +1,22 @@
+[Defines]
+  INF_VERSION                    = 0x0001001A
+  BASE_NAME                      = RkClockInitLib
+  FILE_GUID                      = 5E1D0B7A-34C2-4A96-8F0E-B3C7D5A92E61
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = RkClockInitLib
+
+[Sources]
+  RkClockInitLib.c
+  RkClockMath.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  IoLib
+  TimerLib
+  CruLib

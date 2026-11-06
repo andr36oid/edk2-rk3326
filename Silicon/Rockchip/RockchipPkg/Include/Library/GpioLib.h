@@ -115,16 +115,6 @@ GpioPinGetLevel (
   );
 
 /**
-  Inverted: TRUE when the pad reads LOW. Only here for RkSdmmcPlatformLib,
-  which expects it; use GpioPinGetLevel.
-**/
-BOOLEAN
-GpioPinRead (
-  IN UINT8 Group,
-  IN UINT8 Pin
-  );
-
-/**
   Drive strength as the PX30 level 0..3 (2, 4, 8, 12 mA).
 **/
 VOID

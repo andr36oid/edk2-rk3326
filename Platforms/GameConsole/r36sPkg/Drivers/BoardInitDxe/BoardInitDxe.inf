@@ -1,0 +1,39 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = BoardInitDxe
+  FILE_GUID                      = 8B3D6F12-C4A0-4E75-9D21-5A7E0C1B6F38
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = BoardInitDxeEntry
+
+[Sources]
+  BoardInit.c
+  BoardInit.h
+  BoardInitDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  RockchipPkg/RockchipPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  CruLib
+  DebugLib
+  FdtLib
+  GpioLib
+  HobLib
+  IoLib
+  PcdLib
+  RkClockInitLib
+  UefiDriverEntryPoint
+
+[Guids]
+  gRkPlatformInfoHobGuid
+
+[FixedPcd]
+  gRockchipPkgTokenSpaceGuid.PcdRkBoardInitForce
+  gRockchipPkgTokenSpaceGuid.PcdRkEmmcAlwaysProbe
+
+[Depex]
+  TRUE

@@ -82,19 +82,6 @@ GpioPinGetLevel (
   return ((MmioRead32 (GPIO_BASE (Group) + GPIO_EXT_PORT) >> Pin) & 1) != 0;
 }
 
-BOOLEAN
-GpioPinRead (
-  IN UINT8 Group,
-  IN UINT8 Pin
-  )
-{
-  //
-  // Kept inverted (TRUE = pad low) because RkSdmmcPlatformLib was written
-  // against it. New code should use GpioPinGetLevel.
-  //
-  return !GpioPinGetLevel (Group, Pin);
-}
-
 VOID
 GpioPinSetFunction (
   IN UINT8 Group,

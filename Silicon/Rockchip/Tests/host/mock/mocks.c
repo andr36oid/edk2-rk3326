@@ -41,3 +41,9 @@ UINT64 EFIAPI GetPerformanceCounterProperties (OUT UINT64 *S, OUT UINT64 *E) { r
 UINT64 EFIAPI GetTimeInNanoSecond (IN UINT64 Ticks) { return Ticks; }
 
 VOID * EFIAPI ZeroMem (OUT VOID *Buffer, IN UINTN Length) { memset (Buffer, 0, Length); return Buffer; }
+
+#include <Library/BaseLib.h>
+INTN EFIAPI AsciiStrnCmp (IN CONST CHAR8 *First, IN CONST CHAR8 *Second, IN UINTN Length)
+{
+  return strncmp (First, Second, Length);
+}

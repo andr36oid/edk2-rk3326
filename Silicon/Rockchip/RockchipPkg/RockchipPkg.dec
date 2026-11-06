@@ -20,6 +20,7 @@
   RkPmicLib|Include/Library/RkPmicLib.h
   RkI2cLib|Include/Library/RkI2cLib.h
   RkSaradcLib|Include/Library/RkSaradcLib.h
+  RkClockInitLib|Include/Library/RkClockInitLib.h
   RkLogLib|Include/Library/RkLogLib.h
 
 [Guids.common]
@@ -34,6 +35,9 @@
   gRockchipPkgTokenSpaceGuid.PcdRkSdmmcCardDetectBroken|FALSE|BOOLEAN|0x40000031
   # Register the eMMC controller even when this boot didn't come from eMMC
   gRockchipPkgTokenSpaceGuid.PcdRkEmmcAlwaysProbe|FALSE|BOOLEAN|0x40000032
+  # Run the whole board init even when U-Boot ran first (reprogram PLLs, redo
+  # pins and GPIOs); for testing the C init under a U-Boot chainload
+  gRockchipPkgTokenSpaceGuid.PcdRkBoardInitForce|FALSE|BOOLEAN|0x40000033
 
 [PcdsFeatureFlag.common]
   # DEBUG output drawn on the screen as it is printed
