@@ -112,6 +112,35 @@ AddSerialConsole (
   FreePool (Handles);
 }
 
+//
+// The USB host port has no PCI bus for BDS to find it on, so BDS never
+// connects it by itself. Connect it here, once the console variables list the
+// USB keyboard (SiliciumPkg registers that before calling us), so a keyboard
+// plugged in at power on is in ConIn when the boot app starts. The marker
+// protocol is on the controller handle of the platform's USB host driver;
+// platforms without one find no handle and skip this.
+//
+STATIC
+VOID
+ConnectUsbHost (
+  VOID
+  )
+{
+  EFI_HANDLE  *Handles;
+  UINTN       Count;
+  UINTN       I;
+
+  if (EFI_ERROR (gBS->LocateHandleBuffer (ByProtocol, &gRkUsbHostControllerGuid, NULL, &Count, &Handles))) {
+    return;
+  }
+
+  for (I = 0; I < Count; I++) {
+    DEBUG ((DEBUG_INIT, "andr36oid: USB host: %r\n", gBS->ConnectController (Handles[I], NULL, NULL, TRUE)));
+  }
+
+  FreePool (Handles);
+}
+
 EFI_HANDLE
 EFIAPI
 DeviceBootManagerBeforeConsole (
@@ -124,6 +153,7 @@ DeviceBootManagerBeforeConsole (
   }
 
   PutBootAppFirst ();
+  ConnectUsbHost ();
   return NULL;
 }
 
