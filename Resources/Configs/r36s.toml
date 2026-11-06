@@ -7,7 +7,7 @@
 base = 0x02000000
 # Under 1 MB so the same Mu-r36s.bin also fits a uboot.img copy for the
 # miniloader (loaderimage: 4 copies of 1 MiB, 2 KiB header each):
-# BootShim (0x70) + FD must stay <= 1046528 bytes.
+# BootShim (0x100) + FD must stay <= 1046528 bytes.
 size = 0x000FF000
 
 [boot_shim]
@@ -16,6 +16,11 @@ requires_kernel_header = true
 # the Image to DRAM bank 0 + text_offset, which on RK3326 (bank 0 starts after
 # BL31) is 0x02200000, and copies only image_size bytes of it.
 kernel_flags = 0x8
+# text_offset = FD base - shim size: booti then puts the FD right on its base
+# and the shim jumps without copying (loaded at the FD base itself, the copy
+# would overwrite the shim's own loop). Chainload hook: load and booti at
+# 0x01ffff00. The miniloader path (0x00200000) still copies, no overlap.
+in_place = true
 
 [payload]
 type = "raw"

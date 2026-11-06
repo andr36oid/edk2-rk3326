@@ -191,13 +191,17 @@ def compile_boot_shim (boot_shim_config: dict, fd_config: dict) -> bool:
     # Get Kernel Header Flags (bit 3: the loader may leave the Image where it is)
     kernel_flags = hex (boot_shim_config.get ("kernel_flags", 0))
 
+    # Header asks the loader to put the payload right on the FD base (no copy)
+    in_place = boot_shim_config.get ("in_place", False)
+
     # Set Compile Command
     cmd = [
         "make",
         f"REQUIRES_KERNEL_HEADER={int (requires_kernel_header)}",
         f"FD_BASE={fd_base}",
         f"FD_SIZE={fd_size}",
-        f"KERNEL_FLAGS={kernel_flags}"
+        f"KERNEL_FLAGS={kernel_flags}",
+        f"IN_PLACE={int (in_place)}"
     ]
 
     # Compile Boot Shim
