@@ -40,45 +40,104 @@ FreeRange (
   }
 }
 
+//
+// Where Linux's data may go: the RAM banks Linux gets, below the end of DRAM.
+//
+typedef struct {
+  CONST LINUX_BOOT_PARAMS     *Params;
+  CONST LINUX_MEMORY_RANGE    *Memory;
+  UINTN                       MemoryCount;
+} PLACE_LIMITS;
+
 /**
-  Pages of Size at an Align boundary that the kernel can use: inside the
-  RAM banks Linux gets and clear of every reserved region in Fdt. The
-  allocator does not know about the DTB's reserved regions (U-Boot's logo
-  buffer reaches past the scanned-out framebuffer), so a bad spot is held
-  while the next one is tried.
+  Why [Base, Base + Size) can't hold kernel, initrd or FDT, NULL if it can:
+  outside the RAM banks or DRAM, in a reserved region of the DTB or of the
+  bootloader's FDT (U-Boot's logo buffer is only reserved there: the DTB's
+  drm-logo node is a placeholder SetLogo fills in later, and Linux frees that
+  region once DRM is up), or on the framebuffer handed over. Below gets the
+  start of what was hit, 0 if there is none to go below.
+**/
+STATIC
+CONST CHAR8 *
+Conflict (
+  IN  CONST PLACE_LIMITS  *Limits,
+  IN  UINT64              Base,
+  IN  UINT64              Size,
+  OUT UINT64              *Below
+  )
+{
+  CONST LINUX_BOOT_PARAMS  *P = Limits->Params;
+  CONST CHAR8              *Name;
+
+  *Below = 0;
+  if ((P->RamEnd != 0) && (Base + Size > P->RamEnd)) {
+    *Below = P->RamEnd;
+    return "the end of RAM";
+  }
+
+  if (LinuxFdtRangeConflicts (P->Fdt, Limits->Memory, Limits->MemoryCount, Base, Size, &Name, Below) ||
+      ((P->Fixup.HandoverFdt != NULL) && LinuxFdtRangeConflicts (P->Fixup.HandoverFdt, NULL, 0, Base, Size, &Name, Below)))
+  {
+    return (Name != NULL) ? Name : "a reserved region";
+  }
+
+  if ((P->Fixup.FbSize != 0) && (Base < P->Fixup.FbBase + P->Fixup.FbSize) && (P->Fixup.FbBase < Base + Size)) {
+    *Below = P->Fixup.FbBase;
+    return "the framebuffer";
+  }
+
+  return NULL;
+}
+
+/**
+  Pages of Size at an Align boundary that pass Conflict(). The allocator
+  does not know the reserved regions of the DTBs: after a hit the next try
+  is below the region hit (a region of many MB would take too many tries
+  otherwise), and every bad spot is held until the end so it is not handed
+  out again.
 **/
 STATIC
 EFI_STATUS
 PlaceRange (
-  IN  CONST VOID                *Fdt,
-  IN  CONST LINUX_MEMORY_RANGE  *Memory,
-  IN  UINTN                     MemoryCount,
-  IN  UINT64                    Size,
-  IN  UINT64                    Align,
-  IN  CONST CHAR8               *What,
-  OUT EFI_PHYSICAL_ADDRESS      *Base
+  IN  CONST PLACE_LIMITS    *Limits,
+  IN  UINT64                Size,
+  IN  UINT64                Align,
+  IN  CONST CHAR8           *What,
+  OUT EFI_PHYSICAL_ADDRESS  *Base
   )
 {
   EFI_PHYSICAL_ADDRESS  Held[PLACE_ATTEMPTS];
   UINTN                 HeldPages[PLACE_ATTEMPTS];
   EFI_PHYSICAL_ADDRESS  Raw;
   EFI_PHYSICAL_ADDRESS  Aligned;
+  UINT64                Below;
+  UINT64                Max = 0;
   UINTN                 Pages;
   UINTN                 Count;
   UINTN                 I;
-  CONST CHAR8           *Conflict;
+  CONST CHAR8           *Why;
   EFI_STATUS            Status;
 
   Pages  = EFI_SIZE_TO_PAGES (Size + Align);
   Status = EFI_OUT_OF_RESOURCES;
-  for (Count = 0; Count < PLACE_ATTEMPTS; Count++) {
-    Status = gBS->AllocatePages (AllocateAnyPages, EfiLoaderData, Pages, &Raw);
-    if (EFI_ERROR (Status)) {
-      break;
+  for (Count = 0; Count < PLACE_ATTEMPTS; ) {
+    if (Max != 0) {
+      Raw    = Max - 1;
+      Status = gBS->AllocatePages (AllocateMaxAddress, EfiLoaderData, Pages, &Raw);
+      if (EFI_ERROR (Status)) {
+        Max = 0;      // nothing free below: anywhere again (the bad spots stay held)
+        continue;
+      }
+    } else {
+      Status = gBS->AllocatePages (AllocateAnyPages, EfiLoaderData, Pages, &Raw);
+      if (EFI_ERROR (Status)) {
+        break;
+      }
     }
 
     Aligned = ALIGN_VALUE (Raw, Align);
-    if (!LinuxFdtRangeConflicts (Fdt, Memory, MemoryCount, Aligned, Size, &Conflict)) {
+    Why     = Conflict (Limits, Aligned, Size, &Below);
+    if (Why == NULL) {
       // Give back the alignment slack on both sides.
       if (Aligned > Raw) {
         gBS->FreePages (Raw, EFI_SIZE_TO_PAGES (Aligned - Raw));
@@ -95,10 +154,12 @@ PlaceRange (
       break;
     }
 
-    DEBUG ((DEBUG_WARN, "Linux: %a at 0x%lx would hit %a, trying elsewhere\n", What, Aligned, Conflict));
+    DEBUG ((DEBUG_WARN, "Linux: %a at 0x%lx would hit %a, trying elsewhere\n", What, Aligned, Why));
     Held[Count]      = Raw;
     HeldPages[Count] = Pages;
-    Status           = EFI_OUT_OF_RESOURCES;
+    Count++;
+    Status = EFI_OUT_OF_RESOURCES;
+    Max    = (Below > EFI_PAGES_TO_SIZE (Pages)) ? Below : 0;
   }
 
   for (I = 0; I < Count; I++) {
@@ -121,6 +182,8 @@ LinuxBootPrepare (
   EFI_STATUS              Status;
   UINT64                  FdtBufSize;
   VOID                    *Fdt;
+  PLACE_LIMITS            Limits;
+  LINUX_MEMORY_RANGE      DtbMemory[LINUX_MAX_MEMORY_RANGES];
 
   if ((Params == NULL) || (Handoff == NULL) || (Params->Kernel == NULL) || (Params->Fdt == NULL)) {
     return EFI_INVALID_PARAMETER;
@@ -148,16 +211,21 @@ LinuxBootPrepare (
     Info.Flags
     ));
 
+  // The RAM Linux will see: the banks the fixup writes, else the DTB's own.
+  Limits.Params      = Params;
+  Limits.Memory      = Params->Fixup.Memory;
+  Limits.MemoryCount = Params->Fixup.MemoryCount;
+  if ((Limits.Memory == NULL) || (Limits.MemoryCount == 0)) {
+    Limits.MemoryCount = LinuxFdtGetMemory (Params->Fdt, DtbMemory, ARRAY_SIZE (DtbMemory));
+    Limits.Memory      = DtbMemory;
+  }
+
   //
   // Kernel: text_offset above a 2 MB boundary (booti relocates it the same
-  // way), image_size bytes free from there. The DTB itself (not yet fixed up)
-  // decides what is reserved; the fixed-up one only adds the logo region,
-  // which the DTB's drm-logo node already names when the logo is handed over.
+  // way), image_size bytes free from there.
   //
   Status = PlaceRange (
-             Params->Fdt,
-             Params->Fixup.Memory,
-             Params->Fixup.MemoryCount,
+             &Limits,
              Info.TextOffset + Info.ImageSize,
              SIZE_2MB,
              "kernel",
@@ -173,9 +241,7 @@ LinuxBootPrepare (
 
   if ((Params->Initrd != NULL) && (Params->InitrdSize != 0)) {
     Status = PlaceRange (
-               Params->Fdt,
-               Params->Fixup.Memory,
-               Params->Fixup.MemoryCount,
+               &Limits,
                Params->InitrdSize,
                EFI_PAGE_SIZE,
                "initrd",
@@ -195,9 +261,7 @@ LinuxBootPrepare (
   //
   FdtBufSize = ALIGN_VALUE (FdtTotalSize (Params->Fdt) + FDT_SLACK, EFI_PAGE_SIZE);
   Status     = PlaceRange (
-                 Params->Fdt,
-                 Params->Fixup.Memory,
-                 Params->Fixup.MemoryCount,
+                 &Limits,
                  FdtBufSize,
                  SIZE_2MB,
                  "FDT",
@@ -295,11 +359,13 @@ LinuxBootStart (
   //
   // ExitBootServices fails when the map changed since GetMemoryMap (a timer
   // event allocating); the spec's answer is to fetch the map again and retry.
+  // A buffer that turns out too small (the allocation for it can split a
+  // free range) is grown and the map fetched again.
   //
   Map     = NULL;
   MapSize = 0;
   Status  = EFI_INVALID_PARAMETER;
-  for (Attempt = 0; Attempt < 4; Attempt++) {
+  for (Attempt = 0; Attempt < 16; Attempt++) {
     Status = gBS->GetMemoryMap (&MapSize, Map, &MapKey, &DescSize, &DescVersion);
     if (Status == EFI_BUFFER_TOO_SMALL) {
       if (Map != NULL) {
@@ -312,7 +378,7 @@ LinuxBootStart (
         return EFI_OUT_OF_RESOURCES;
       }
 
-      Status = gBS->GetMemoryMap (&MapSize, Map, &MapKey, &DescSize, &DescVersion);
+      continue;
     }
 
     if (EFI_ERROR (Status)) {

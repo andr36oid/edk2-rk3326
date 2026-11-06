@@ -26,6 +26,15 @@ RkSdmmcSetIoMux (
   VOID
   );
 
+/**
+  Hand the eMMC its pins (on an SD start they may be button pins).
+**/
+VOID
+EFIAPI
+RkSdmmcSetEmmcIoMux (
+  VOID
+  );
+
 RKSDMMC_CARD_PRESENCE_STATE
 EFIAPI
 RkSdmmcGetCardPresenceState (

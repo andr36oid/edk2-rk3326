@@ -13,6 +13,8 @@
 
 static int  mPass, mFail;
 
+void  UbootSerialFromCpuId (const unsigned char *cpuid, char *out);   // UbootSerialRef.c
+
 #define CHECK(c, ...)                                         \
   do {                                                        \
     if (c) { mPass++; } else {                                \
@@ -296,6 +298,95 @@ main (int argc, char **argv)
 
     Decide (&f, FALSE, FALSE, FALSE, &bf, BootChoiceNone, &p);
     CHECK (strlen (p.Bootargs) < BOOT_ARGS_MAX, "long console fits");
+  }
+
+  // Serial number from the CPU ID, against U-Boot's own code
+  {
+    static const UINT8  Qemu[BOOT_CPU_ID_SIZE] = "QEMU virt cpu id";   // qemuvirt BootPlatformLib
+    UINT8               Id[BOOT_CPU_ID_SIZE];
+    char                Got[64], Want[80];
+    int                 i, j, Bad = 0, Short = 0;
+
+    CHECK (BootPolicySerialFromCpuId (Qemu, Got, sizeof (Got)), "QEMU CPU ID");
+    UbootSerialFromCpuId (Qemu, Want);
+    CHECK_STR (Got, Want, "QEMU CPU ID serial");
+    printf ("     QEMU CPU ID serial %s\n", Got);
+
+    srand (36);
+    for (i = 0; i < 200000; i++) {
+      for (j = 0; j < BOOT_CPU_ID_SIZE; j++) {
+        Id[j] = (UINT8)rand ();
+      }
+
+      if (i < 256) {          // one byte set, the rest zero: small CRCs, short serials
+        memset (Id, 0, sizeof (Id));
+        Id[i % BOOT_CPU_ID_SIZE] = (UINT8)(i % 255 + 1);
+      }
+
+      if (!BootPolicySerialFromCpuId (Id, Got, sizeof (Got))) {
+        Bad++;
+        continue;
+      }
+
+      UbootSerialFromCpuId (Id, Want);
+      if (strcmp (Got, Want) != 0) {
+        if (Bad++ < 5) {
+          printf ("FAIL serial %d: got %s want %s\n", i, Got, Want);
+        }
+      }
+
+      Short += strlen (Got) < 16;
+    }
+
+    CHECK (Bad == 0, "%d of 200000 CPU IDs give another serial than U-Boot's", Bad);
+    CHECK (Short > 1000, "only %d serials shorter than 16 digits tested", Short);
+    printf ("     200000 CPU IDs match U-Boot (%d with leading zeros dropped)\n", Short);
+
+    memset (Id, 0, sizeof (Id));
+    CHECK (!BootPolicySerialFromCpuId (Id, Got, sizeof (Got)) && Got[0] == 0, "all-zero OTP refused");
+    memset (Id, 0xFF, sizeof (Id));
+    CHECK (!BootPolicySerialFromCpuId (Id, Got, sizeof (Got)) && Got[0] == 0, "all-0xFF OTP refused");
+    CHECK (!BootPolicySerialFromCpuId (Qemu, Got, 16), "16-byte buffer refused");
+  }
+
+  // Screen DTB names, U-Boot's cmd/hwrev.c
+  CHECK_STR (BootPolicyScreenDtbName ("rg351mp"), "rg351mp-uboot.dtb", "rg351mp");
+  CHECK_STR (BootPolicyScreenDtbName ("rg351v"), "rg351v-uboot.dtb", "rg351v");
+  CHECK_STR (BootPolicyScreenDtbName ("rg351p"), "rg351p-uboot.dtb", "rg351p");
+  CHECK_STR (BootPolicyScreenDtbName ("v00"), "rg351p-uboot.dtb", "v00");
+  CHECK_STR (BootPolicyScreenDtbName (""), "rg351p-uboot.dtb", "empty");
+  CHECK_STR (BootPolicyScreenDtbName ("rg351mpx"), "rg351p-uboot.dtb", "rg351mpx");
+
+  // Device paths: VenHw(controller) / USB(port, if) / HD(1,...) is a USB
+  // stick; VenHw / HD (the SD slot), an empty path, a broken node and a USB
+  // node after the end are not.
+  {
+    static const unsigned char  usb[] = {
+      0x01, 0x04, 0x14, 0x00, 0x52, 0x4b, 0x0d, 0x6f, 0x91, 0x2c, 0x3e, 0x4a, 0x8d, 0x07, 0xb5, 0x1e, 0x93, 0x6a, 0xc4, 0x28,
+      0x03, 0x05, 0x06, 0x00, 0x00, 0x00,
+      0x04, 0x01, 0x2a, 0x00, 0x01, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x01,
+      0x7f, 0xff, 0x04, 0x00
+    };
+    static const unsigned char  sd[] = {
+      0x01, 0x04, 0x14, 0x00, 0xc5, 0xa6, 0xf1, 0x93, 0x48, 0x2e, 0x7d, 0x4b, 0x8a, 0x0c, 0x51, 0xe9, 0x3d, 0x76, 0xb2, 0x4f,
+      0x04, 0x01, 0x2a, 0x00, 0x01, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x01,
+      0x7f, 0xff, 0x04, 0x00
+    };
+    static const unsigned char  end[]     = { 0x7f, 0xff, 0x04, 0x00 };
+    static const unsigned char  broken[]  = { 0x01, 0x04, 0x02, 0x00, 0x03, 0x05, 0x06, 0x00, 0x00, 0x00, 0x7f, 0xff, 0x04, 0x00 };
+    static const unsigned char  usbnode[] = { 0x03, 0x05, 0x06, 0x00, 0x01, 0x00, 0x7f, 0xff, 0x04, 0x00 };
+    static const unsigned char  usbclass[] = { 0x03, 0x0f, 0x0b, 0x00, 0xff, 0xff, 0xff, 0xff, 0x08, 0x06, 0x50, 0x7f, 0xff, 0x04, 0x00 };
+    static const unsigned char  after[]   = { 0x7f, 0xff, 0x04, 0x00, 0x03, 0x05, 0x06, 0x00, 0x00, 0x00 };
+
+    CHECK (BootPolicyIsUsbPath (usb), "USB stick path");
+    CHECK (BootPolicyIsUsbPath (usbnode), "USB node first");
+    CHECK (!BootPolicyIsUsbPath (sd), "SD path is not USB");
+    CHECK (!BootPolicyIsUsbPath (end), "empty path is not USB");
+    CHECK (!BootPolicyIsUsbPath (NULL), "NULL is not USB");
+    CHECK (!BootPolicyIsUsbPath (broken), "broken node ends the walk");
+    CHECK (!BootPolicyIsUsbPath (usbclass), "UsbClass() short form is not a device");
+    CHECK (!BootPolicyIsUsbPath (after), "USB node after the end");
+    CHECK (sizeof (sd) == 20 + 42 + 4 && sizeof (usb) == 20 + 6 + 42 + 4, "test path sizes");
   }
 
   printf ("TestBootPolicy: %d passed, %d failed\n", mPass, mFail);

@@ -12,6 +12,7 @@
 #include <Guid/QemuVirtPlatformInfoHob.h>
 
 extern EFI_GUID  gQemuVirtMemDiskGuid;
+extern EFI_GUID  gQemuVirtMemDiskEmmcGuid;
 
 EFI_STATUS
 EFIAPI
@@ -42,6 +43,17 @@ BootPlatformGetInfo (
   return EFI_SUCCESS;
 }
 
+EFI_STATUS
+EFIAPI
+BootPlatformGetCpuId (
+  OUT UINT8  *CpuId
+  )
+{
+  // QEMU has no OTP: a fixed ID, so the test sees the serial number path.
+  CopyMem (CpuId, "QEMU virt cpu id", 16);
+  return EFI_SUCCESS;
+}
+
 BOOT_DEVICE_KIND
 EFIAPI
 BootPlatformDeviceKind (
@@ -50,14 +62,27 @@ BootPlatformDeviceKind (
 {
   CONST EFI_DEVICE_PATH_PROTOCOL  *Node;
 
-  // The BOOT image stands in for the SD card.
+  // MemDiskDxe's BOOT images stand in for the SD card and the eMMC.
   for (Node = DevicePath; !IsDevicePathEnd (Node); Node = NextDevicePathNode (Node)) {
-    if ((DevicePathType (Node) == HARDWARE_DEVICE_PATH) && (DevicePathSubType (Node) == HW_VENDOR_DP) &&
-        CompareGuid (&((CONST VENDOR_DEVICE_PATH *)Node)->Guid, &gQemuVirtMemDiskGuid))
-    {
-      return BootDeviceSd;
+    if ((DevicePathType (Node) == HARDWARE_DEVICE_PATH) && (DevicePathSubType (Node) == HW_VENDOR_DP)) {
+      if (CompareGuid (&((CONST VENDOR_DEVICE_PATH *)Node)->Guid, &gQemuVirtMemDiskGuid)) {
+        return BootDeviceSd;
+      }
+
+      if (CompareGuid (&((CONST VENDOR_DEVICE_PATH *)Node)->Guid, &gQemuVirtMemDiskEmmcGuid)) {
+        return BootDeviceEmmc;
+      }
     }
   }
 
   return BootDeviceUnknown;
+}
+
+EFI_STATUS
+EFIAPI
+BootPlatformUsbPower (
+  IN CONST VOID  *BoardFdt
+  )
+{
+  return EFI_UNSUPPORTED;
 }

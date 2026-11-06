@@ -17,3 +17,21 @@
 
 [Components]
   Andr36oidPkg/Application/Andr36oidBoot/Andr36oidBoot.inf
+
+#
+# RELEASE builds keep errors, warnings and DEBUG_INIT lines (the RK log lines)
+# so BOOT/uefi-log.txt still says why a start failed. The fixed level lets the
+# compiler drop every other DEBUG () string; ASSERTs stay off.
+#
+!if $(TARGET) == RELEASE
+[LibraryClasses]
+  DebugLib|MdePkg/Library/BaseDebugLibSerialPort/BaseDebugLibSerialPort.inf
+
+[PcdsFixedAtBuild]
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x02
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000003
+  gEfiMdePkgTokenSpaceGuid.PcdFixedDebugPrintErrorLevel|0x80000003
+
+[BuildOptions]
+  RELEASE_CLANGPDB_*_CC_FLAGS = -U MDEPKG_NDEBUG
+!endif

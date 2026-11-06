@@ -16,7 +16,8 @@
 typedef enum {
   BootDeviceUnknown,
   BootDeviceSd,           // the card slot (U-Boot's mmc 1)
-  BootDeviceEmmc          // built-in eMMC (U-Boot's mmc 0)
+  BootDeviceEmmc,         // built-in eMMC (U-Boot's mmc 0)
+  BootDeviceUsb           // a USB stick (the app tells it from the path, BootPolicyIsUsbPath)
 } BOOT_DEVICE_KIND;
 
 typedef struct {
@@ -43,12 +44,39 @@ BootPlatformGetInfo (
   );
 
 /**
+  The SoC's unique ID, 16 bytes (BootPolicySerialFromCpuId
+  makes U-Boot's serial number from it). Only called when U-Boot gave none.
+**/
+EFI_STATUS
+EFIAPI
+BootPlatformGetCpuId (
+  OUT UINT8  *CpuId
+  );
+
+/**
   Which storage a block device / file system handle's device path is on.
 **/
 BOOT_DEVICE_KIND
 EFIAPI
 BootPlatformDeviceKind (
   IN CONST EFI_DEVICE_PATH_PROTOCOL  *DevicePath
+  );
+
+/**
+  A start without U-Boot (no bootloader FDT): switch the USB host port's 5 V
+  the way the board DTB from BOOT says, as U-Boot's board code does
+  otherwise, then connect the USB host again so what is plugged in shows up.
+  Call once.
+
+  @retval EFI_SUCCESS      Host power on (or nothing to switch).
+  @retval EFI_NOT_READY    A charger is in on a board that shares the port
+                           with it: left charging, no USB devices.
+  @retval EFI_UNSUPPORTED  No USB host on this device.
+**/
+EFI_STATUS
+EFIAPI
+BootPlatformUsbPower (
+  IN CONST VOID  *BoardFdt
   );
 
 #endif

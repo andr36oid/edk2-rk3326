@@ -51,9 +51,14 @@ typedef struct {
   // route properties are copied over. Without one, FbBase/FbSize (the live
   // framebuffer) only fill in the region.
   //
+  // LogoFromFb: the firmware put the screen on another buffer, so U-Boot's
+  // region and route properties are stale and FbBase/FbSize are used even
+  // with a HandoverFdt.
+  //
   CONST VOID                  *HandoverFdt;
   UINT64                      FbBase;
   UINT64                      FbSize;
+  BOOLEAN                     LogoFromFb;
 } LINUX_FDT_FIXUP;
 
 /**
@@ -117,7 +122,8 @@ LinuxFdtGetBootargs (
 /**
   TRUE if [Base, Base + Size) overlaps a /reserved-memory region or a
   /memreserve/ entry of Fdt, or is not inside one of Memory[] (when given).
-  Name gets the reserved node's name for the log.
+  Name gets the reserved node's name for the log, RegionBase the start of
+  the reserved region hit (0 when it is outside Memory[]).
 **/
 BOOLEAN
 EFIAPI
@@ -127,7 +133,8 @@ LinuxFdtRangeConflicts (
   IN  UINTN                     MemoryCount,
   IN  UINT64                    Base,
   IN  UINT64                    Size,
-  OUT CONST CHAR8               **Name OPTIONAL
+  OUT CONST CHAR8               **Name OPTIONAL,
+  OUT UINT64                    *RegionBase OPTIONAL
   );
 
 //
@@ -150,11 +157,14 @@ typedef struct {
   UINTN               InitrdSize;
   CONST VOID          *Fdt;             // DTB file
   LINUX_FDT_FIXUP     Fixup;            // InitrdStart/Size are filled in here
+  UINT64              RamEnd;           // end of DRAM: nothing is placed above, 0 = unknown
 } LINUX_BOOT_PARAMS;
 
 /**
-  Copy kernel, initrd and FDT to their final places (EfiLoaderData, clear of
-  the DTB's reserved regions and inside its RAM banks) and fix up the FDT.
+  Copy kernel, initrd and FDT to their final places (EfiLoaderData) and fix
+  up the FDT. The places are inside the RAM Linux gets (Fixup.Memory, else
+  the DTB's /memory, and below RamEnd) and clear of the reserved regions of
+  the DTB and of Fixup.HandoverFdt and of the framebuffer handed over.
   Nothing irreversible: on error everything is freed.
 **/
 EFI_STATUS

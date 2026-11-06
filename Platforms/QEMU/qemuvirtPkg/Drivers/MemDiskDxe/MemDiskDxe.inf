@@ -11,14 +11,22 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  RockchipPkg/RockchipPkg.dec
   qemuvirtPkg/qemuvirt.dec
 
 [LibraryClasses]
+  BaseLib
   BaseMemoryLib
   DebugLib
+  FdtLib
+  HobLib
   PcdLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
+
+[Guids]
+  gQemuVirtPlatformInfoHobGuid
+  gRkEmmcRequestEventGuid
 
 [Protocols]
   gEfiBlockIoProtocolGuid

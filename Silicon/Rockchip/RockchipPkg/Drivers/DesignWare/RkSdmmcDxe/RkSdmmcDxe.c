@@ -255,6 +255,27 @@ AddSlot (
                 );
 }
 
+/**
+  gRkEmmcRequestEventGuid: the boot app wants the eMMC on a start from the SD
+  card (no BOOT there, or boot.ini's eMMC test). Its pins first, as U-Boot's
+  andr36oid_emmc_pins does before it reads the eMMC.
+**/
+STATIC
+VOID
+EFIAPI
+OnEmmcRequest (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  EFI_STATUS  Status;
+
+  gBS->CloseEvent (Event);
+  RkSdmmcSetEmmcIoMux ();
+  Status = AddSlot (&mSlots[SLOT_EMMC]);
+  DEBUG ((EFI_ERROR (Status) ? DEBUG_ERROR : DEBUG_INFO, "RkSdmmc: eMMC on request: %r\n", Status));
+}
+
 EFI_STATUS
 EFIAPI
 RkSdmmcDxeInitialize (
@@ -264,6 +285,7 @@ RkSdmmcDxeInitialize (
 {
   EFI_STATUS  Status;
   EFI_HANDLE  Handle;
+  EFI_EVENT   Event;
   BOOLEAN     FromEmmc;
 
   GetBootSource (&mBootedFromSd, &FromEmmc);
@@ -283,6 +305,8 @@ RkSdmmcDxeInitialize (
     if (EFI_ERROR (Status)) {
       DEBUG ((DEBUG_ERROR, "RkSdmmc: eMMC: %r\n", Status));
     }
+  } else {
+    gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, OnEmmcRequest, NULL, &gRkEmmcRequestEventGuid, &Event);
   }
 
   Handle = NULL;

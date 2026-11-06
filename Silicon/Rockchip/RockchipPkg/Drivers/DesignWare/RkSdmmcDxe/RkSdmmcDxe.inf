@@ -46,6 +46,7 @@
 [Guids]
   gDwMmcHcNonDiscoverableDeviceGuid
   gRkPlatformInfoHobGuid
+  gRkEmmcRequestEventGuid
 
 [FixedPcd]
   gRockchipPkgTokenSpaceGuid.PcdRkSdmmcCardDetectBroken

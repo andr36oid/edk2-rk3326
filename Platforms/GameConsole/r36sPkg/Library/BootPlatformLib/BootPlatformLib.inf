@@ -19,9 +19,15 @@
   BaseMemoryLib
   DevicePathLib
   HobLib
+  IoLib
+  MemoryAllocationLib
+  RkUsbPlatformLib
+  TimerLib
+  UefiBootServicesTableLib
 
 [Guids]
   gRkPlatformInfoHobGuid
 
 [Protocols]
   gEdkiiNonDiscoverableDeviceProtocolGuid
+  gRkUsbHostControllerGuid

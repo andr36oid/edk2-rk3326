@@ -122,6 +122,9 @@ struct fdt_info {
   int           have_initrd;
   u64           mem_base[4], mem_size[4];
   int           mem_count;
+  u64           res_base[16], res_size[16];
+  const char    *res_name[16];
+  int           res_count;
 };
 
 static void
@@ -131,8 +134,9 @@ parse_fdt (const u8 *fdt, struct fdt_info *fi)
   const char  *strs = (const char *)fdt + be (fdt + 12, 4);
   u64         off   = 0;
   int         depth = 0;
-  int         in_chosen = 0, in_memory = 0;
-  int         ac = 2, sc = 1;
+  int         in_chosen = 0, in_memory = 0, in_res = 0;
+  int         ac = 2, sc = 1, rac = 2, rsc = 1;
+  const char  *node = 0;
   u32         tok, len, i;
   const char  *name;
 
@@ -149,11 +153,14 @@ parse_fdt (const u8 *fdt, struct fdt_info *fi)
       if (depth == 2) {
         in_chosen = streq (name, "chosen");
         in_memory = prefix (name, "memory");
+        in_res    = streq (name, "reserved-memory");
+      } else if (depth == 3) {
+        node = name;
       }
     } else if (tok == 2) {                // END_NODE
       depth--;
       if (depth < 2) {
-        in_chosen = in_memory = 0;
+        in_chosen = in_memory = in_res = 0;
       }
     } else if (tok == 3) {                // PROP
       const u8  *v;
@@ -178,6 +185,15 @@ parse_fdt (const u8 *fdt, struct fdt_info *fi)
           fi->initrd_end   = be (v, len);
           fi->have_initrd |= 2;
         }
+      } else if ((depth == 2) && in_res && streq (name, "#address-cells")) {
+        rac = be (v, 4);
+      } else if ((depth == 2) && in_res && streq (name, "#size-cells")) {
+        rsc = be (v, 4);
+      } else if ((depth == 3) && in_res && streq (name, "reg") && (len >= (rac + rsc) * 4) && (fi->res_count < 16)) {
+        fi->res_base[fi->res_count] = be (v, rac * 4);
+        fi->res_size[fi->res_count] = be (v + rac * 4, rsc * 4);
+        fi->res_name[fi->res_count] = node;
+        fi->res_count++;
       } else if ((depth == 2) && in_memory && streq (name, "reg")) {
         for (i = 0; i + (ac + sc) * 4 <= len && fi->mem_count < 4; i += (ac + sc) * 4) {
           fi->mem_base[fi->mem_count] = be (v + i, ac * 4);
@@ -209,7 +225,7 @@ in_memory (struct fdt_info *fi, u64 base, u64 size)
 static int
 overlaps (u64 a, u64 as, u64 b, u64 bs)
 {
-  return (a < b + bs) && (b < a + as);
+  return (as != 0) && (bs != 0) && (a < b + bs) && (b < a + as);
 }
 
 void
@@ -225,6 +241,7 @@ test_main (u64 x0, u64 x1, u64 x2, u64 x3, u64 daif, u64 el, u64 sctlr, u64 entr
   fi.have_initrd = 0;
   fi.initrd_start = fi.initrd_end = 0;
   fi.mem_count = 0;
+  fi.res_count = 0;
 
   puts_ ("\nTESTKERNEL: started at EL");
   putc_ ('0' + (char)el);
@@ -262,6 +279,22 @@ test_main (u64 x0, u64 x1, u64 x2, u64 x3, u64 daif, u64 el, u64 sctlr, u64 entr
     puts_ ("+");
     puthex (fi.mem_size[i]);
     puts_ ("\n");
+  }
+
+  // What Linux keeps its hands off: nothing it needs may sit there.
+  for (i = 0; i < fi.res_count; i++) {
+    puts_ ("TESTKERNEL: reserved ");
+    puts_ (fi.res_name[i]);
+    puts_ (" ");
+    puthex (fi.res_base[i]);
+    puts_ ("+");
+    puthex (fi.res_size[i]);
+    puts_ ("\n");
+    check (!overlaps (base, TEXT_OFFSET + IMAGE_SIZE, fi.res_base[i], fi.res_size[i]), "Image clear of /reserved-memory");
+    check (!overlaps (x0, fdt_size, fi.res_base[i], fi.res_size[i]), "FDT clear of /reserved-memory");
+    if (fi.have_initrd) {
+      check (!overlaps (fi.initrd_start, fi.initrd_end - fi.initrd_start, fi.res_base[i], fi.res_size[i]), "initrd clear of /reserved-memory");
+    }
   }
 
   check (fi.mem_count > 0, "/memory present");

@@ -12,8 +12,9 @@
 
 #include <Base.h>
 
-#define BOOT_ARGS_MAX   2048
-#define BOOT_VALUE_MAX  512
+#define BOOT_ARGS_MAX     2048
+#define BOOT_VALUE_MAX    512
+#define BOOT_CPU_ID_SIZE  16      // PX30 OTP bytes 0x07-0x16 (U-Boot's CPUID_OFF/LEN)
 
 typedef enum {
   BootTargetAndroid,
@@ -137,6 +138,42 @@ BootPolicyDecide (
   IN  CONST BOOT_FILES  *Files,
   IN  BOOT_CHOICE       Choice,
   OUT BOOT_PLAN         *Plan
+  );
+
+/**
+  The serial number U-Boot's rockchip_set_serialno (arch/arm/mach-rockchip/
+  board.c:96-153) makes from a CPU ID: CRC32 without complement of the odd
+  bytes, then of the even bytes seeded with the first CRC, as one 64-bit
+  number in lower-case hex without leading zeros ("%llx"). FALSE (and no
+  serial) for a CPU ID of all 0x00 or all 0xFF, an OTP that was not read.
+**/
+BOOLEAN
+EFIAPI
+BootPolicySerialFromCpuId (
+  IN  CONST UINT8  *CpuId,
+  OUT CHAR8        *Serial,
+  IN  UINTN        SerialSize
+  );
+
+/**
+  The screen DTB U-Boot loads for this hwrev (cmd/hwrev.c): rg351mp-uboot.dtb,
+  rg351v-uboot.dtb, else (rg351p, v00) rg351p-uboot.dtb.
+**/
+CONST CHAR8 *
+EFIAPI
+BootPolicyScreenDtbName (
+  IN CONST CHAR8  *HwRev
+  );
+
+/**
+  TRUE if the device path runs through a USB device (a USB() node, which
+  UsbBusDxe puts in every device's path): a USB stick, not the SD card or
+  the eMMC. A node shorter than its header ends the walk, as do 64 nodes.
+**/
+BOOLEAN
+EFIAPI
+BootPolicyIsUsbPath (
+  IN CONST VOID  *DevicePath OPTIONAL
   );
 
 #endif

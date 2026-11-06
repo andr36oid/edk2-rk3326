@@ -28,12 +28,14 @@
 #include <Library/PowerCheckLib.h>
 #include <Library/PrintLib.h>
 #include <Library/RkLogLib.h>
+#include <Library/SerialPortLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 
 #define KERNEL_MAX   SIZE_64MB
 #define RAMDISK_MAX  SIZE_64MB
 #define DTB_MAX      SIZE_1MB
+#define USB_WAIT_MS  3000         // for a USB stick when there is no other BOOT
 
 VOID
 EFIAPI
@@ -53,19 +55,11 @@ Say (
   AsciiVSPrint (Line, sizeof (Line), Format, Args);
   VA_END (Args);
 
-  // Into the RAM log (on the serial console the text already lands there),
-  // in pieces: DebugLib cuts messages at 256 bytes.
+  // Into the RAM log (on the serial console the text already lands there)
+  // straight through SerialPortLib: no 256-byte cut as in DebugLib, and in
+  // RELEASE builds too, where DEBUG () is compiled out.
   if (!FeaturePcdGet (PcdBootSerialConsole)) {
-    for (I = 0; Line[I] != '\0'; I += N) {
-      CHAR8  Piece[201];
-
-      N = AsciiStrnLenS (Line + I, sizeof (Piece) - 1);
-      CopyMem (Piece, Line + I, N);
-      Piece[N] = '\0';
-      DEBUG ((DEBUG_INIT, "%a", Piece));
-    }
-
-    N = 0;
+    SerialPortWrite ((UINT8 *)Line, AsciiStrLen (Line));
   }
 
   for (I = 0; Line[I] != '\0'; I++) {
@@ -142,6 +136,15 @@ VolumeLoad (
 }
 
 STATIC
+CONST CHAR8 *
+DeviceName (
+  IN BOOT_DEVICE_KIND  Kind
+  )
+{
+  return (Kind == BootDeviceEmmc) ? "eMMC" : ((Kind == BootDeviceSd) ? "SD card" : "unknown");
+}
+
+STATIC
 VOID
 GatherFacts (
   IN  CONST BOOT_PLATFORM_INFO  *Pi,
@@ -149,6 +152,7 @@ GatherFacts (
   )
 {
   CONST CHAR8  *Args = NULL;
+  UINT8        CpuId[BOOT_CPU_ID_SIZE];
 
   ZeroMem (Facts, sizeof (*Facts));
   if (Pi->BootloaderFdt != 0) {
@@ -158,8 +162,7 @@ GatherFacts (
   if (BootPolicyParseUbootArgs (Args, Facts)) {
     Say ("boot: U-Boot says hwrev=%a ram_mb=%u bootpart=%a\n", Facts->HwRev, Facts->RamMb, Facts->BootFromEmmc ? "0:1" : "1:1");
   } else {
-    Facts->BootFromEmmc = (Pi->BootDevice == BootDeviceEmmc);
-    Say ("boot: no facts from U-Boot, using the board's\n");
+    Say ("boot: no facts from U-Boot, using the board's (started from %a)\n", DeviceName (Pi->BootDevice));
   }
 
   if (Facts->HwRev[0] == '\0') {
@@ -183,18 +186,24 @@ GatherFacts (
     Facts->RamMb = (UINT32)(Pi->DramSize >> 20);
   }
 
+  // U-Boot's serial#, else the one it would make from the CPU ID
   if (Facts->SerialNo[0] == '\0') {
-    Say ("boot: no serial number (U-Boot gives it), androidboot.serialno stays empty\n");
+    if (!EFI_ERROR (BootPlatformGetCpuId (CpuId)) && BootPolicySerialFromCpuId (CpuId, Facts->SerialNo, sizeof (Facts->SerialNo))) {
+      Say ("boot: serial number %a from the CPU ID\n", Facts->SerialNo);
+    } else {
+      Say ("boot: no CPU ID, androidboot.serialno stays empty\n");
+    }
   }
 }
 
 //
 // eMMC Installation step 2 (boot.ini's emmc-test.txt): mark the test tried on
-// the SD card, then start from the eMMC once. Without an eMMC the UEFI can
-// read the test is left for a later start through U-Boot.
+// the SD card (written and read back), then start from the eMMC once if its
+// BOOT has boot.ini and the DTB; else the SD card's start goes on. The eMMC
+// is asked for first: on an SD start the platform leaves it alone.
 //
 STATIC
-BOOLEAN
+VOID
 EmmcTest (
   IN OUT BOOT_VOLUME  *Sd,
   IN OUT BOOT_FACTS   *Facts
@@ -204,32 +213,29 @@ EmmcTest (
   EFI_FILE_PROTOCOL   *Emmc;
   CHAR8               Value[16];
 
-  Emmc = BootOpenVolume (BootDeviceEmmc);
-  if (Emmc == NULL) {
-    Say ("boot: eMMC test: no eMMC BOOT here, left for a start through U-Boot\n");
-    return FALSE;
-  }
-
-  if (!BootFileExists (Emmc, BOOT_FILE_BOOT_INI) || !BootFileExists (Emmc, BOOT_FILE_DTB) ||
-      EFI_ERROR (BootWriteFile (Sd->Root, BOOT_FILE_EMMC_TEST, Tried, sizeof (Tried) - 1)))
-  {
-    Say ("boot: eMMC test: eMMC BOOT incomplete or emmc-test.txt not writable\n");
-    Emmc->Close (Emmc);
-    return FALSE;
-  }
-
+  BootWriteFile (Sd->Root, BOOT_FILE_EMMC_TEST, Tried, sizeof (Tried) - 1);
   VolumeLoad (Sd);
   if (!BootPolicyEnvGet (&Sd->Files.EmmcTest, "emmc_test", Value, sizeof (Value)) || (AsciiStrCmp (Value, "tried") != 0)) {
-    Say ("boot: eMMC test: emmc-test.txt did not read back\n");
-    Emmc->Close (Emmc);
-    return FALSE;
+    Say ("boot: eMMC test: emmc-test.txt not writable\n");
+    return;
+  }
+
+  BootRequestEmmc ();
+  Emmc = BootOpenVolume (BootDeviceEmmc);
+  if ((Emmc == NULL) || !BootFileExists (Emmc, BOOT_FILE_BOOT_INI) || !BootFileExists (Emmc, BOOT_FILE_DTB)) {
+    Say ("boot: eMMC test: eMMC not readable here\n");
+    if (Emmc != NULL) {
+      Emmc->Close (Emmc);
+    }
+
+    return;
   }
 
   Say ("boot: eMMC test: starting from the eMMC\n");
+  Sd->Root->Close (Sd->Root);
   Sd->Root            = Emmc;
   Facts->BootFromEmmc = TRUE;
   VolumeLoad (Sd);
-  return TRUE;
 }
 
 //
@@ -257,6 +263,8 @@ StartLinux (
   UINTN               DtbSize;
   UINTN               Offset;
   UINTN               Payload;
+  UINT64              FbBase;
+  UINT64              FbSize;
   CONST CHAR8         *Failed;
   CONST VOID          *Handover = (Pi->BootloaderFdt != 0) ? (VOID *)(UINTN)Pi->BootloaderFdt : NULL;
 
@@ -316,11 +324,31 @@ StartLinux (
     Say ("boot: RAM size unknown, the DTB's /memory stays\n");
   }
 
-  // Boot logo handover: from U-Boot's FDT, else the live framebuffer
+  // Nothing above the end of DRAM (RK RAM starts at 0; QEMU always has banks)
+  for (Offset = 0; Offset < Pi->MemoryCount; Offset++) {
+    Params.RamEnd = MAX (Params.RamEnd, Pi->Memory[Offset].Base + Pi->Memory[Offset].Size);
+  }
+
+  if (Params.RamEnd == 0) {
+    Params.RamEnd = Pi->DramSize;
+  }
+
+  //
+  // Boot logo handover: U-Boot's (its FDT names its logo buffer) while the
+  // panel still shows U-Boot's framebuffer; else the one the display driver
+  // scans out now (no U-Boot screen, or display=reinit made a new one).
+  //
   Params.Fixup.HandoverFdt = Handover;
   if (Pi->FbValid) {
     Params.Fixup.FbBase = Pi->FbBase;
     Params.Fixup.FbSize = Pi->FbSize;
+  }
+
+  if (BootScreenFramebuffer (&FbBase, &FbSize) && (!Pi->FbValid || (FbBase != Pi->FbBase))) {
+    Params.Fixup.FbBase     = FbBase;
+    Params.Fixup.FbSize     = FbSize;
+    Params.Fixup.LogoFromFb = TRUE;
+    Say ("boot: logo handover from the display's framebuffer 0x%lx+0x%lx\n", FbBase, FbSize);
   }
 
   Status = LinuxBootPrepare (&Params, &Handoff);
@@ -357,6 +385,95 @@ Done:
   return Status;
 }
 
+//
+// No U-Boot: its board code would have switched the USB port's 5 V from the
+// board DTB; do it from BOOT's copy, once.
+//
+STATIC
+VOID
+UsbPower (
+  IN BOOT_VOLUME               *Vol,
+  IN CONST BOOT_PLATFORM_INFO  *Pi
+  )
+{
+  VOID        *Dtb;
+  UINTN       Size;
+  EFI_STATUS  Status;
+
+  if (Pi->BootloaderFdt != 0) {
+    return;     // the USB driver had U-Boot's FDT
+  }
+
+  if (EFI_ERROR (BootReadFile (Vol->Root, BOOT_FILE_DTB, DTB_MAX, &Dtb, &Size))) {
+    Say ("boot: USB: no BOOT/%a, 5 V left as it is\n", BOOT_FILE_DTB);
+    return;
+  }
+
+  Status = BootPlatformUsbPower (Dtb);
+  Say (
+    "boot: USB 5 V from BOOT/%a: %a\n",
+    BOOT_FILE_DTB,
+    (Status == EFI_NOT_READY) ? "charger in, port left charging" :
+    ((Status == EFI_UNSUPPORTED) ? "no USB host" : (EFI_ERROR (Status) ? "failed" : "on"))
+    );
+  FreePool (Dtb);
+}
+
+//
+// Start from the USB stick: its kernel, ramdisk, DTB and boot.ini, the same
+// decisions. androidboot.boot_devices stays the SD card's or the eMMC's
+// controller (Android's partitions are there); the log goes to the stick.
+//
+STATIC
+BOOLEAN
+UseUsb (
+  IN OUT BOOT_VOLUME  *Vol,
+  IN     UINTN        WaitMs
+  )
+{
+  EFI_FILE_PROTOCOL  *Usb = BootOpenUsbVolume (WaitMs);
+
+  if (Usb == NULL) {
+    return FALSE;
+  }
+
+  if (Vol->Root != NULL) {
+    Vol->Root->Close (Vol->Root);
+  }
+
+  Vol->Root = Usb;
+  VolumeLoad (Vol);
+  return TRUE;
+}
+
+//
+// The menu, then the USB stick if that was picked.
+//
+STATIC
+BOOT_CHOICE
+Menu (
+  IN OUT BOOT_VOLUME  *Vol,
+  IN     CONST CHAR8  *Message OPTIONAL,
+  IN OUT BOOLEAN      *FromUsb
+  )
+{
+  BOOT_CHOICE  Choice;
+  BOOLEAN      Usb;
+
+  Choice = BootMenu (Vol->Root, Message, &Usb);
+  if (Usb) {
+    if (UseUsb (Vol, 0)) {
+      Say ("boot: starting from the USB stick\n");
+      *FromUsb = TRUE;
+    } else {
+      Say ("boot: the USB stick is gone\n");
+      Choice = BootChoiceNone;
+    }
+  }
+
+  return Choice;
+}
+
 EFI_STATUS
 EFIAPI
 Andr36oidBootMain (
@@ -371,7 +488,10 @@ Andr36oidBootMain (
   BOOT_PLAN           *Plan;
   BOOT_CHOICE         Choice = BootChoiceNone;
   EFI_INPUT_KEY       Key;
-  BOOLEAN             KeyMenu = FALSE;
+  BOOLEAN             KeyMenu   = FALSE;
+  BOOLEAN             EmmcTried = FALSE;
+  BOOLEAN             FromUsb   = FALSE;
+  BOOT_DEVICE_KIND    Kind;
   CHAR8               Message[160];
 
   Plan = AllocateZeroPool (sizeof (*Plan));
@@ -403,19 +523,55 @@ Andr36oidBootMain (
 
   Say ("boot: board %a, hwrev %a, %u MB, keys fn=%d select=%d start=%d\n", Pi.Name, Facts.HwRev, Facts.RamMb, Keys.Fn, Keys.Select, Keys.Start);
 
-  // Without BOOT only the menu is left (Save log has nowhere to go either).
+  //
+  // BOOT: where U-Boot said (andr36oid.bootpart); without U-Boot the way its
+  // board.c picks andr36oid_part: the SD card's, else the eMMC's. The other
+  // one also stands in when the first is not readable. Without BOOT only
+  // the menu is left (Save log has nowhere to go either).
+  //
   for ( ; ;) {
-    Vol.Root = BootOpenVolume (Facts.BootFromEmmc ? BootDeviceEmmc : BootDeviceSd);
+    Kind     = Facts.BootFromEmmc ? BootDeviceEmmc : BootDeviceSd;
+    Vol.Root = BootOpenVolume (Kind);
+    if (Vol.Root == NULL) {
+      Kind = (Kind == BootDeviceSd) ? BootDeviceEmmc : BootDeviceSd;
+      if (Kind == BootDeviceEmmc) {
+        BootRequestEmmc ();
+      }
+
+      Vol.Root = BootOpenVolume (Kind);
+      if (Vol.Root != NULL) {
+        Say ("boot: no BOOT on the %a, using the %a's\n", DeviceName (Facts.BootFromEmmc ? BootDeviceEmmc : BootDeviceSd), DeviceName (Kind));
+        Facts.BootFromEmmc = (Kind == BootDeviceEmmc);
+      }
+    }
+
     if (Vol.Root != NULL) {
+      VolumeLoad (&Vol);
       break;
     }
 
-    AsciiSPrint (Message, sizeof (Message), "No BOOT partition with Image or boot.ini on the %a", Facts.BootFromEmmc ? "eMMC" : "SD card");
+    // Neither has BOOT (no card?): a USB stick with BOOT files
+    if (UseUsb (&Vol, USB_WAIT_MS)) {
+      Say ("boot: no BOOT on the SD card or the eMMC, starting from the USB stick\n");
+      FromUsb = TRUE;
+      break;
+    }
+
+    AsciiSPrint (Message, sizeof (Message), "No BOOT partition with Image or boot.ini on the SD card or the eMMC");
     Say ("boot: %a\n", Message);
-    Choice = BootMenu (NULL, Message);
+    BootScreenSetup (NULL, Facts.HwRev);
+    Choice = Menu (&Vol, Message, &FromUsb);
+    if (FromUsb) {
+      break;
+    }
   }
 
-  VolumeLoad (&Vol);
+  // The panel (no U-Boot: from BOOT's screen DTB) and the console on it,
+  // before anything the menu draws; the USB port's power.
+  BootScreenSetup (Vol.Root, Facts.HwRev);
+  if (!FromUsb) {
+    UsbPower (&Vol, &Pi);     // a stick that is in has power already
+  }
   Say ("boot: BOOT: boot.ini %a, kernel-tweaks.txt %a, recovery.txt %a\n", Vol.Files.BootIni.Data ? "yes" : "no", Vol.Files.KernelTweaks.Data ? "yes" : "no", Vol.Files.RecoveryTxt ? "yes" : "no");
 
   for ( ; ;) {
@@ -423,17 +579,19 @@ Andr36oidBootMain (
       AsciiSPrint (Message, sizeof (Message), "The kernel command line is too long (boot.ini or kernel-tweaks.txt)");
       Say ("boot: %a\n", Message);
       BootSaveLogs (Vol.Root);
-      Choice = BootMenu (Vol.Root, Message);
+      Choice = Menu (&Vol, Message, &FromUsb);
       continue;
     }
 
     if ((Choice == BootChoiceNone) && (Plan->ShowMenu || KeyMenu)) {
-      Choice = BootMenu (Vol.Root, NULL);
+      Choice = Menu (&Vol, NULL, &FromUsb);
       continue;
     }
 
-    if (Plan->EmmcTest && EmmcTest (&Vol, &Facts)) {
-      continue;     // decide again with the eMMC's files
+    if (Plan->EmmcTest && !EmmcTried && !FromUsb) {
+      EmmcTried = TRUE;
+      EmmcTest (&Vol, &Facts);
+      continue;     // decide again: emmc-test.txt says tried, or the eMMC's files
     }
 
     Say (
@@ -453,6 +611,6 @@ Andr36oidBootMain (
     StartLinux (&Vol, Plan, &Pi, Message, sizeof (Message));
     Say ("boot: %a\n", Message);
     BootSaveLogs (Vol.Root);
-    Choice = BootMenu (Vol.Root, Message);
+    Choice = Menu (&Vol, Message, &FromUsb);
   }
 }
