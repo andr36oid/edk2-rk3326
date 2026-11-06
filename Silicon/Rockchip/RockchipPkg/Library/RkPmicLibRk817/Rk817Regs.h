@@ -45,6 +45,11 @@
 #define RK817_INT_PWRON_FALL  0x01
 #define RK817_INT_PWRON_RISE  0x02
 #define RK817_GPIO_INT_CFG  0xFE
+#define RK817_POWER_EN_SAVE0  0x99
+#define RK817_POWER_EN_SAVE1  0xA4
+#define RK817_CHRG_OUT      0xE4
+#define RK817_USB_CTRL      0xE5
+#define RK817_BAT_EXS       0x80      // CHRG_STS bit 7: a battery is connected
 
 typedef enum {
   Rk817KindNone,
@@ -246,13 +251,72 @@ Rk817BatteryMilliVolts (
   INT32  B;
 
   Delta = (INT32)Vcalib1 - (INT32)Vcalib0;
-  if (Delta == 0) {
-    Delta = 1;
+  if (Delta <= 0) {
+    return 0;       // calibration not programmed: no reading
   }
 
   K = (4025 - 2300) * 1000 / Delta;
   B = 4025 - (K * (INT32)Vcalib1) / 1000;
   return K * (INT32)Raw / 1000 + B;
+}
+
+//
+// Battery voltage the ADC can really have produced. Anything else (calibration
+// registers still zero, a missing battery) is reported as unknown.
+//
+STATIC
+BOOLEAN
+Rk817BatteryMilliVoltsValid (
+  IN INT32  MilliVolts
+  )
+{
+  return MilliVolts >= 2500 && MilliVolts <= 4700;
+}
+
+//
+// What U-Boot's probe copies into POWER_EN_SAVE0/1: the enable nibbles of
+// POWER_EN0/1 and POWER_EN2/3 (the kernel's reboot handler restores from them).
+//
+STATIC
+VOID
+Rk817PowerEnSave (
+  IN  UINT8  En0,
+  IN  UINT8  En1,
+  IN  UINT8  En2,
+  IN  UINT8  En3,
+  OUT UINT8  *Save0,
+  OUT UINT8  *Save1
+  )
+{
+  *Save0 = (UINT8)((En0 & 0x0F) | ((En1 & 0x0F) << 4));
+  *Save1 = (UINT8)((En2 & 0x0F) | ((En3 & 0x0F) << 4));
+}
+
+//
+// Charger limits as fg_rk817.c sets them (rk817_bat_charger_setting). Input
+// voltage limit 4500 mV (code 0x50, with the 0x80 enable) in USB_CTRL[7:4];
+// input current in USB_CTRL[3:0] (with BIT3): 450 mA (code 0) or, for a DC/AC
+// charger, 1500 mA (code 3); charge current CHRG_OUT[2:0] = 1 (1500 mA) only
+// for DC/AC. U-Boot cannot tell a USB host from a wall charger without the
+// USB controller, and its fallback for "unknown but plugged" is DC.
+//
+STATIC
+UINT8
+Rk817UsbCtrl (
+  IN BOOLEAN  DcInput
+  )
+{
+  // Both nibbles are replaced, so the old value does not matter.
+  return (UINT8)(0xD0 | (DcInput ? 0x0B : 0x08));
+}
+
+STATIC
+UINT8
+Rk817ChrgOut (
+  IN UINT8  Old
+  )
+{
+  return (UINT8)((Old & ~0x07) | 0x01);
 }
 
 //

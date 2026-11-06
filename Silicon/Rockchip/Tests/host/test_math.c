@@ -213,7 +213,8 @@ static void test_rk817 (void)
   CHECK (abs (Rk817BatteryMilliVolts (0x0A00, 0x0A00, 0x1400) - 2300) <= 2);
   CHECK (abs (Rk817BatteryMilliVolts (0x1400, 0x0A00, 0x1400) - 4025) <= 2);
   CHECK (abs (Rk817BatteryMilliVolts (0x0F00, 0x0A00, 0x1400) - 3162) <= 5);
-  CHECK_EQ (Rk817BatteryMilliVolts (0x1000, 0x1000, 0x1000) > 0, 1);   // equal codes: no divide by zero
+  CHECK_EQ (Rk817BatteryMilliVolts (0x1000, 0x1000, 0x1000), 0);        // equal codes (no calibration): unknown, no divide by zero
+  CHECK_EQ (Rk817BatteryMilliVolts (0x1000, 0, 0), 0);
 
   CHECK (!Rk817IsCharging (0x00));
   CHECK (Rk817IsCharging (0x10));    // dead charge
@@ -318,8 +319,38 @@ static void test_key_repeat (void)
   CHECK_EQ (KeyRepeatStep (&n, TRUE, 900000000, FALSE), 0);
 }
 
+static void test_rk817_power (void)
+{
+  UINT8 s0, s1;
+
+  // U-Boot rk8xx_probe: SAVE0 = en0[3:0] | en1[3:0] << 4, SAVE1 = en2 | en3 << 4
+  Rk817PowerEnSave (0x1F, 0xA5, 0x03, 0xF4, &s0, &s1);
+  CHECK_EQ (s0, 0x5F);
+  CHECK_EQ (s1, 0x43);
+  Rk817PowerEnSave (0, 0, 0, 0, &s0, &s1);
+  CHECK_EQ (s0, 0); CHECK_EQ (s1, 0);
+  CHECK_EQ (RK817_POWER_EN_SAVE0, 0x99);       // kernel rk808.h
+  CHECK_EQ (RK817_POWER_EN_SAVE1, 0xA4);
+
+  // fg_rk817.c: VLIM_4500MV 0x50 | 0x80 in the high nibble, ILIM 450 mA = 0 or 1500 mA = 3, | 0x08
+  CHECK_EQ (Rk817UsbCtrl (TRUE), 0xDB);
+  CHECK_EQ (Rk817UsbCtrl (FALSE), 0xD8);
+  CHECK_EQ (Rk817ChrgOut (0x00), 0x01);        // CHRG_CUR_1500MA = 1
+  CHECK_EQ (Rk817ChrgOut (0xFF), 0xF9);        // other bits kept
+  CHECK_EQ (Rk817ChrgOut (0x07), 0x01);
+
+  CHECK (!Rk817BatteryMilliVoltsValid (0));
+  CHECK (!Rk817BatteryMilliVoltsValid (-4000));
+  CHECK (!Rk817BatteryMilliVoltsValid (2499));
+  CHECK (Rk817BatteryMilliVoltsValid (2500));
+  CHECK (Rk817BatteryMilliVoltsValid (4200));
+  CHECK (Rk817BatteryMilliVoltsValid (4700));
+  CHECK (!Rk817BatteryMilliVoltsValid (4701));
+}
+
 int main (void)
 {
+  test_rk817_power ();
   test_board_family ();
   test_pin_regs ();
   test_clocks ();

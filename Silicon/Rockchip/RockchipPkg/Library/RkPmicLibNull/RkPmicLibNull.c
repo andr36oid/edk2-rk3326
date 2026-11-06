@@ -51,6 +51,15 @@ RkPmicGetPowerStatus (
 
 EFI_STATUS
 EFIAPI
+RkPmicSetChargerLimits (
+  VOID
+  )
+{
+  return EFI_UNSUPPORTED;
+}
+
+EFI_STATUS
+EFIAPI
 RkPmicPowerOff (
   VOID
   )
