@@ -1,0 +1,24 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = BootPlatformLibQemuVirt
+  FILE_GUID                      = 3B9D6E14-A208-4C7F-91E5-0D4A7C2B8F63
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = BootPlatformLib
+
+[Sources]
+  BootPlatformLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Andr36oidPkg/Andr36oidPkg.dec
+  qemuvirtPkg/qemuvirt.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DevicePathLib
+  HobLib
+
+[Guids]
+  gQemuVirtPlatformInfoHobGuid
+  gQemuVirtMemDiskGuid

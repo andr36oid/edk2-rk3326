@@ -1,0 +1,31 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = PlatformPeiLib
+  FILE_GUID                      = 1D84F6B3-7A02-4C59-B3E8-6F2A0D9C5E71
+  MODULE_TYPE                    = SEC
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PlatformPeiLib
+
+[Sources]
+  PlatformPeiLib.c
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  ArmPlatformPkg/ArmPlatformPkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  qemuvirtPkg/qemuvirt.dec
+
+[LibraryClasses]
+  DebugLib
+  HobLib
+  PcdLib
+  QemuVirtInfoLib
+
+[Guids]
+  gQemuVirtPlatformInfoHobGuid
+
+[FixedPcd]
+  gArmTokenSpaceGuid.PcdFvBaseAddress
+  gArmTokenSpaceGuid.PcdFvSize

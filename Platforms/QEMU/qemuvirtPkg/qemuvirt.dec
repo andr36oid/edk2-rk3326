@@ -1,0 +1,28 @@
+##
+#  QEMU virt test device for the andr36oid boot app.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  DEC_SPECIFICATION              = 0x00010005
+  PACKAGE_NAME                   = qemuvirt
+  PACKAGE_GUID                   = 8B2E4D17-5C9A-4F3B-A1D6-7E0F3C2B9A54
+  PACKAGE_VERSION                = 0.1
+
+[Includes]
+  Include
+
+[LibraryClasses]
+  QemuVirtInfoLib|Include/Guid/QemuVirtPlatformInfoHob.h
+
+[Guids]
+  gQemuVirtTokenSpaceGuid  = { 0x2d6a8f41, 0x0b7e, 0x4c93, { 0x95, 0x1a, 0x3f, 0x8c, 0x62, 0xd4, 0x07, 0xbe } }
+  # HOB from PlatformPeiLib: the FDT QEMU passed in x0 and the RAM it describes
+  gQemuVirtPlatformInfoHobGuid = { 0x6e1c3b92, 0x47a5, 0x4d0e, { 0xb3, 0x58, 0x9a, 0x21, 0xcf, 0x70, 0x5e, 0x13 } }
+  # Device path of the BOOT image MemDiskDxe exposes
+  gQemuVirtMemDiskGuid = { 0x93f1a6c5, 0x2e48, 0x4b7d, { 0x8a, 0x0c, 0x51, 0xe9, 0x3d, 0x76, 0xb2, 0x4f } }
+
+[PcdsFixedAtBuild]
+  # Where tools/qemu-test.sh loads the BOOT FAT image (-device loader)
+  gQemuVirtTokenSpaceGuid.PcdMemDiskBase|0x50000000|UINT64|0x00000001
+  gQemuVirtTokenSpaceGuid.PcdMemDiskSize|0x02000000|UINT64|0x00000002

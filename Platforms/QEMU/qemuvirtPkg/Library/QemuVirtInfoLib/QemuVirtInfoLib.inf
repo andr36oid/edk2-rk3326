@@ -1,0 +1,19 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = QemuVirtInfoLib
+  FILE_GUID                      = 5F0B2C7A-1E94-4D63-8C21-A7E5B3D90F46
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = QemuVirtInfoLib
+
+[Sources]
+  QemuVirtInfoLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  qemuvirtPkg/qemuvirt.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  FdtLib
