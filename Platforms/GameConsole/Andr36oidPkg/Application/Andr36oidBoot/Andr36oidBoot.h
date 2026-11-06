@@ -31,7 +31,7 @@ Say (
 // BootFiles.c
 
 /**
-  Root of the first FAT volume on that storage that has Image or boot.ini
+  Root of the first FAT volume on that storage that has boot.ini (USB: Image, initrd, DTB and boot.ini)
   (a USB stick: Image, ramdisk.uimg, the DTB and boot.ini). On a device
   whose storage can't be told apart (Unknown), any volume with them counts
   as the SD card. NULL if none.

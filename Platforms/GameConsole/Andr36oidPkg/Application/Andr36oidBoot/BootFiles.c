@@ -141,11 +141,14 @@ BootOpenVolume (
         continue;
       }
 
-      // A USB stick only counts with everything a start needs on it.
+      // A USB stick only counts with everything a start needs on it. SD
+      // and eMMC count with boot.ini, as in U-Boot (cmd/cfgload.c,
+      // mach-rockchip/board.c): an eMMC install's data card keeps Image but
+      // has no boot.ini, and must not win over the eMMC.
       if ((Kind == BootDeviceUsb) ?
           (BootFileExists (Root, BOOT_FILE_KERNEL) && BootFileExists (Root, BOOT_FILE_RAMDISK) &&
            BootFileExists (Root, BOOT_FILE_DTB) && BootFileExists (Root, BOOT_FILE_BOOT_INI)) :
-          (BootFileExists (Root, BOOT_FILE_KERNEL) || BootFileExists (Root, BOOT_FILE_BOOT_INI)))
+          BootFileExists (Root, BOOT_FILE_BOOT_INI))
       {
         FreePool (Handles);
         return Root;

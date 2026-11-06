@@ -557,7 +557,7 @@ Andr36oidBootMain (
       break;
     }
 
-    AsciiSPrint (Message, sizeof (Message), "No BOOT partition with Image or boot.ini on the SD card or the eMMC");
+    AsciiSPrint (Message, sizeof (Message), "No BOOT partition with boot.ini on the SD card or the eMMC");
     Say ("boot: %a\n", Message);
     BootScreenSetup (NULL, Facts.HwRev);
     Choice = Menu (&Vol, Message, &FromUsb);
