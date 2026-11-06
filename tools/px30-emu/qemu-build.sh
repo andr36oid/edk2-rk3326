@@ -27,7 +27,7 @@ if [ ! -d "$SRC" ]; then
     tar -C "$EMU/src" -xf "$tarball"
 fi
 
-cp "$HERE/andr36oid-px30.c" "$SRC/hw/arm/andr36oid-px30.c"
+cp "$HERE/andr36oid-px30.c" "$HERE/px30-dwmmc.c" "$SRC/hw/arm/"
 if ! grep -q "ANDR36OID_PX30" "$SRC/hw/arm/Kconfig"; then
     cat >> "$SRC/hw/arm/Kconfig" <<'EOF'
 
@@ -39,12 +39,17 @@ config ANDR36OID_PX30
     select ARM_GIC
     select SERIAL_MM
     select USB_DWC2
+    select SD
 EOF
 fi
-if ! grep -q "andr36oid-px30.c" "$SRC/hw/arm/meson.build"; then
-    sed -i "s|^arm_common_ss.add(files('boot.c'))|arm_common_ss.add(when: 'CONFIG_ANDR36OID_PX30', if_true: files('andr36oid-px30.c'))\n&|" \
+if ! grep -q "px30-dwmmc.c" "$SRC/hw/arm/meson.build"; then
+    sed -i "/andr36oid-px30.c/d" "$SRC/hw/arm/meson.build"
+    sed -i "s|^arm_common_ss.add(files('boot.c'))|arm_common_ss.add(when: 'CONFIG_ANDR36OID_PX30', if_true: files('andr36oid-px30.c', 'px30-dwmmc.c'))\n&|" \
         "$SRC/hw/arm/meson.build"
-    grep -q "andr36oid-px30.c" "$SRC/hw/arm/meson.build"
+    grep -q "px30-dwmmc.c" "$SRC/hw/arm/meson.build"
+fi
+if ! grep -q "select SD$" "$SRC/hw/arm/Kconfig"; then
+    sed -i "/^config ANDR36OID_PX30/,/^$/s|    select USB_DWC2|&\n    select SD|" "$SRC/hw/arm/Kconfig"
 fi
 
 if [ ! -f "$BUILD/build.ninja" ]; then

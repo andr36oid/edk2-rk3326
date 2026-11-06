@@ -3,7 +3,7 @@
 
   mkboot.py --image Mu-r36s.bin --scenario chainload|native --ram-mb 1024|512 --out DIR
             [--dtb DEVICE.dtb] [--uboot-dtb uboot-dtb] [--logo logo.bmp]
-            [--keep-atags] [--no-display] [--tee-size MB] [--x0 HEX] [--bootargs-extra STR]
+            [--keep-atags] [--no-display] [--bootdev sd|emmc] [--bootpart D:P] [--tee-size MB] [--x0 HEX] [--bootargs-extra STR]
 
 Writes DIR/ram.bin (the guest RAM, used as QEMU's memory-backend-file),
 DIR/regs-init.txt (register state at the hand-over), DIR/fdt.dtb (the FDT
@@ -207,7 +207,7 @@ def pack_reg(root, pairs):
 
 ATAG_CORE, ATAG_SERIAL, ATAG_BOOTDEV, ATAG_DDR_MEM, ATAG_TOS_MEM = (
     0x54410001, 0x54410050, 0x54410051, 0x54410052, 0x54410053)
-BOOT_TYPE_SD0 = 1 << 2
+BOOT_TYPE_EMMC, BOOT_TYPE_SD0 = 1 << 1, 1 << 2
 
 
 def js_hash(data):
@@ -227,13 +227,13 @@ def tag(magic, payload, hashed=True):
     return body + struct.pack('<I', js_hash(body))
 
 
-def build_atags(ram_bytes, tee_base, tee_size):
+def build_atags(ram_bytes, tee_base, tee_size, bootdev=BOOT_TYPE_SD0):
     t = b''
     t += tag(ATAG_CORE, struct.pack('<III', 0, 0, 0), hashed=False)
     # tag_serial: version, enable, addr, baudrate, m_mode, id, reserved[2]
     t += tag(ATAG_SERIAL, struct.pack('<IIQIII8x', 0, 1, 0xFF160000, 1500000, 0, 2))
     # tag_bootdev: version, devtype, devnum, mode, sdupdate, reserved[6]
-    t += tag(ATAG_BOOTDEV, struct.pack('<IIIII24x', 0, BOOT_TYPE_SD0, 0, 0, 0))
+    t += tag(ATAG_BOOTDEV, struct.pack('<IIIII24x', 0, bootdev, 0, 0, 0))
     # tag_ddr_mem: count, version, bank[20] (bases then sizes), reserved[3]
     banks = [0] * 20
     banks[0], banks[1] = 0, ram_bytes
@@ -325,6 +325,8 @@ def main():
     ap.add_argument('--hwrev', default='rg351mp')
     ap.add_argument('--serial', default='c4e8f0d2a17b3956')
     ap.add_argument('--bootpart', default='1:1')
+    ap.add_argument('--bootdev', choices=['sd', 'emmc'], default='sd',
+                    help='boot device in the miniloader ATAG (what the boot ROM started from)')
     ap.add_argument('--bootargs-extra', default='')
     a = ap.parse_args()
 
@@ -339,7 +341,8 @@ def main():
     regs[0xFF010208], regs[0xFF01020C] = os_regs(a.ram_mb)
 
     # ATAGs
-    atags = build_atags(ram_bytes, tee_base, tee_size)
+    atags = build_atags(ram_bytes, tee_base, tee_size,
+                        BOOT_TYPE_EMMC if a.bootdev == 'emmc' else BOOT_TYPE_SD0)
     open(os.path.join(a.out, 'atags.bin'), 'wb').write(atags)
     if a.scenario == 'chainload' and not a.keep_atags:
         atags = b'\0' * 812 + atags[812:]      # atags_destroy(): memset(sizeof(struct tag))

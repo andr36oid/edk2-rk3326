@@ -12,6 +12,8 @@
  *   0xFF131000  GIC-400 distributor, 0xFF132000 CPU interface (GICv2)
  *   0xFF160000  UART2, 16550 with reg-shift 2, 32-bit (SPI 17)
  *   0xFF300000  USB OTG: QEMU's dwc2-usb host model unless dwc2=off (SPI 62)
+ *   0xFF370000  SD slot DW-MMC (px30-dwmmc.c, SPI 54): card = -drive if=sd,index=0
+ *   0xFF390000  eMMC DW-MMC (SPI 53): card (QEMU emmc) = -drive if=sd,index=1
  *   0xFF000000-0xFFFFFFFF otherwise: a register file ("px30-regs") with the
  *               rules below; accesses no rule covers are stored like RAM and
  *               logged to the trace file with the guest PC and LR.
@@ -33,6 +35,9 @@
  *                   nothing pressed)
  *   charger=on      RK817 SYS_STS PLUG_IN_STS set
  *   dwc2=off        no DWC2 model (the window is then plain registers)
+ *   sd-fault=<f>, emmc-fault=<f>   fault injection, see px30-dwmmc.c
+ *   mmc-log=<prefix>               DW-MMC command logs <prefix>-sdmmc.txt and
+ *                   <prefix>-emmc.txt
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -57,7 +62,11 @@
 #include "target/arm/gtimer.h"
 #include "accel/tcg/cpu-loop.h"
 #include "exec/target_page.h"
+#include "system/blockdev.h"
 #include <sys/mman.h>
+
+DeviceState *px30_dwmmc_create(hwaddr base, qemu_irq irq, const char *name, DriveInfo *di,
+                               bool emmc, const char *fault, const char *log);
 
 #define REGS_BASE   0xFF000000ULL
 #define REGS_SIZE   (16 * MiB)
@@ -77,6 +86,7 @@ static struct {
     uint32_t gpio_in[4];
     bool charger;
     bool usb;
+    char *sd_fault, *emmc_fault, *mmc_log;
 } opt = {
     .entry = 0x01ffff00,
     .adc = { 166, 0x3ff, 0x3ff, 0x3ff, 0x3ff, 0x3ff, 0x3ff, 0x3ff },
@@ -527,6 +537,54 @@ static bool cru_pll_con(uint32_t off, bool pmucru, int *con)
     return false;
 }
 
+/* PLL output (clk-pll.c pll_rk3328 = rk3036 layout: CON0 fbdiv 11:0, postdiv1
+ * 14:12; CON1 refdiv 5:0, postdiv2 8:6, dsmpd 12; CON2 frac 23:0) behind the
+ * mode mux (CRU MODE_CON 0xa0: cpll 5:4, npll 7:6; PMUCRU 0x20: gpll 1:0;
+ * 0 = 24 MHz, 1 = PLL) */
+static uint64_t pll_hz(hwaddr con0, hwaddr mode, int shift)
+{
+    uint32_t c0 = *R(con0), c1 = *R(con0 + 4), c2 = *R(con0 + 8);
+    uint64_t fb = c0 & 0xfff, p1 = (c0 >> 12) & 7, ref = c1 & 0x3f, p2 = (c1 >> 6) & 7;
+    uint64_t hz;
+
+    if (((*R(mode) >> shift) & 3) != 1) {
+        return 24000000;
+    }
+    if (!ref || !p1 || !p2) {
+        return 0;
+    }
+    hz = 24000000ULL * fb;
+    if (!(c1 & (1 << 12))) {
+        hz += (24000000ULL * (c2 & 0xffffff)) >> 24;
+    }
+    return hz / ref / p1 / p2;
+}
+
+/* clk_sdmmc / clk_emmc (clk-px30.c: CLKSEL_CON16/17 resp. 20/21, parents
+ * gpll, cpll, npll, xin24m; gates CLKGATE_CON6 bits 13-15 resp. 4-6), used by
+ * px30-dwmmc.c to work out the card clock. */
+uint64_t px30_mmc_clk_hz(bool emmc);
+uint64_t px30_mmc_clk_hz(bool emmc)
+{
+    hwaddr cru = 0xFF2B0000, pmucru = 0xFF2BC000;
+    uint32_t sel = *R(cru + 0x100 + (emmc ? 20 : 16) * 4);
+    uint32_t sel2 = *R(cru + 0x100 + (emmc ? 21 : 17) * 4);
+    uint32_t gate = *R(cru + 0x200 + 6 * 4) >> (emmc ? 4 : 13);
+    uint64_t parent;
+    bool div50 = (sel2 >> 15) & 1;
+
+    if ((gate & (div50 ? 2 : 1)) || (gate & 4)) {
+        return 0;
+    }
+    switch ((sel >> 14) & 3) {
+    case 0: parent = pll_hz(pmucru + 0x0, pmucru + 0x20, 0); break;
+    case 1: parent = pll_hz(cru + 0x40, cru + 0xa0, 4); break;
+    case 2: parent = pll_hz(cru + 0x60, cru + 0xa0, 6); break;
+    default: parent = 24000000; break;
+    }
+    return parent / ((div50 ? (sel2 & 0xff) : (sel & 0xff)) + 1);
+}
+
 static bool cru_rd(hwaddr a, uint32_t *v)
 {
     bool pmucru = (a & ~0xfffULL) == 0xFF2BC000ULL;
@@ -576,76 +634,6 @@ static bool cru_wr(hwaddr a, uint32_t old, uint32_t v, unsigned size)
     }
     if (off == 0xa0 || (off >= 0x100 && off < 0x400)) {
         return wr_hiword(a, old, v, size);
-    }
-    return false;
-}
-
-/* --- DW-MMC (kernel drivers/mmc/host/dw_mmc.c/.h), no card in the slot:
- * CTRL reset bits 2:0 and BMOD SWR clear themselves; a command (CMD bit31)
- * is taken at once: clock updates (bit21) end there, a command without a
- * response (RESP_EXP bit6 clear) ends with CMD_DONE, one expecting a response
- * with CMD_DONE + RTO (nobody answers) in RINTSTS (W1C); MINTSTS = RINTSTS &
- * INTMASK; STATUS = FIFO empty, TX watermark, idle; CDETECT bit0 = 1 (no
- * card, active low card-detect pin). VERID 0x270a (Synopsys 2.70a as on
- * other Rockchip SoCs - assumed), HCON: 32-bit data, internal DMAC. */
-static bool dwmmc_rd(hwaddr a, uint32_t *v)
-{
-    hwaddr base = a & ~0xffffULL;
-
-    switch (a & 0xffff) {
-    case 0x040:
-        *v = *R(base + 0x044) & *R(base + 0x024);
-        return true;
-    case 0x048:
-        *v = (1 << 1) | (1 << 2);
-        return true;
-    case 0x050:
-        *v = 1;
-        return true;
-    case 0x06c:
-        *v = 0x5342270a;
-        return true;
-    case 0x070:
-        *v = 1 << 7;
-        return true;
-    case 0x000: case 0x004: case 0x008: case 0x00c: case 0x010: case 0x014:
-    case 0x018: case 0x01c: case 0x020: case 0x024: case 0x028: case 0x02c:
-    case 0x030: case 0x034: case 0x038: case 0x03c: case 0x044: case 0x04c:
-    case 0x058: case 0x064: case 0x068: case 0x074: case 0x078: case 0x080:
-    case 0x088: case 0x08c: case 0x090: case 0x100:
-        return true;
-    }
-    return false;
-}
-
-static bool dwmmc_wr(hwaddr a, uint32_t old, uint32_t v, unsigned size)
-{
-    hwaddr base = a & ~0xffffULL;
-
-    switch (a & 0xffff) {
-    case 0x000:
-        *R(a) = v & ~7u;
-        return true;
-    case 0x080:
-        *R(a) = v & ~1u;
-        return true;
-    case 0x02c:
-        *R(a) = v & ~(1u << 31);
-        if ((v & (1u << 31)) && !(v & (1u << 21))) {
-            *R(base + 0x044) |= (1 << 2) | ((v & (1 << 6)) ? (1 << 8) : 0);
-            *R(base + 0x030) = 0;
-        }
-        return true;
-    case 0x044:
-        *R(a) = old & ~v;
-        return true;
-    case 0x08c:                     /* IDSTS, W1C */
-        *R(a) = old & ~v;
-        return true;
-    case 0x004: case 0x008: case 0x00c: case 0x010: case 0x014: case 0x018:
-    case 0x01c: case 0x020: case 0x024: case 0x028: case 0x04c: case 0x058:
-    case 0x064: case 0x068: case 0x074: case 0x078: case 0x088: case 0x090:
-        return wr_plain(a, old, v, size);
     }
     return false;
 }
@@ -707,8 +695,6 @@ static const Rule rules[] = {
     /* MIPI video PHY (phy-rockchip-inno-video-combo-phy.c: plain registers,
      * nothing polled) */
     { 0xFF2E0000, 0x10000, "video-phy",  rd_plain,  wr_plain },
-    { 0xFF370000, 0x4000,  "sdmmc",      dwmmc_rd,  dwmmc_wr },
-    { 0xFF390000, 0x4000,  "emmc",       dwmmc_rd,  dwmmc_wr },
     { 0xFF450000, 0x10000, "dsi",        dsi_rd,    dsi_wr },
     /* VOP big/little (rockchip_vop_reg.c px30 RK3366_LIT layout): plain
      * registers; the state U-Boot leaves comes from regs-init */
@@ -726,6 +712,8 @@ static const char *block_name(hwaddr a)
         { 0xFF290000, 0x4000, "otp" },
         { 0xFF300000, 0x40000, "usb-otg" },
         { 0xFF340000, 0x20000, "usb-host" },
+        { 0xFF370000, 0x4000, "sdmmc" },
+        { 0xFF390000, 0x4000, "emmc" },
         { 0xFF3A0000, 0x4000, "sfc" },
         { 0xFF3B0000, 0x4000, "nandc" },
     };
@@ -965,6 +953,16 @@ static void px30_init(MachineState *ms)
         sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, qdev_get_gpio_in(gic, 62));
     }
 
+    {
+        g_autofree char *l0 = opt.mmc_log ? g_strdup_printf("%s-sdmmc.txt", opt.mmc_log) : NULL;
+        g_autofree char *l1 = opt.mmc_log ? g_strdup_printf("%s-emmc.txt", opt.mmc_log) : NULL;
+
+        px30_dwmmc_create(0xFF370000, qdev_get_gpio_in(gic, 54), "sdmmc",
+                          drive_get(IF_SD, 0, 0), false, opt.sd_fault, l0);
+        px30_dwmmc_create(0xFF390000, qdev_get_gpio_in(gic, 53), "emmc",
+                          drive_get(IF_SD, 0, 1), true, opt.emmc_fault, l1);
+    }
+
     memory_region_init_io(regs_mr, NULL, &regs_ops, NULL, "px30-regs", REGS_SIZE);
     memory_region_add_subregion_overlap(sysmem, REGS_BASE, regs_mr, -1);
 
@@ -1017,6 +1015,9 @@ static bool parse_list(const char *s, uint32_t *tab, unsigned n, Error **errp)
 STR_PROP(regs, regs_path)
 STR_PROP(regs_init, regs_init)
 STR_PROP(trace, trace_path)
+STR_PROP(sd_fault, sd_fault)
+STR_PROP(emmc_fault, emmc_fault)
+STR_PROP(mmc_log, mmc_log)
 
 #define U64_PROP(fn, field)                                                  \
     static char *get_##fn(Object *o, Error **e) { return g_strdup_printf("0x%" PRIx64, opt.field); } \
@@ -1053,6 +1054,7 @@ static void px30_machine_init(MachineClass *mc)
     mc->no_cdrom = 1;
     mc->no_floppy = 1;
     mc->no_parallel = 1;
+    mc->block_default_type = IF_SD;
 
     object_class_property_add_str(oc, "regs", get_regs, set_regs);
     object_class_property_add_str(oc, "regs-init", get_regs_init, set_regs_init);
@@ -1067,6 +1069,9 @@ static void px30_machine_init(MachineClass *mc)
     object_class_property_add_bool(oc, "trace-all", get_trace_all, set_trace_all);
     object_class_property_add_bool(oc, "charger", get_charger, set_charger);
     object_class_property_add_bool(oc, "dwc2", get_usb, set_usb);
+    object_class_property_add_str(oc, "sd-fault", get_sd_fault, set_sd_fault);
+    object_class_property_add_str(oc, "emmc-fault", get_emmc_fault, set_emmc_fault);
+    object_class_property_add_str(oc, "mmc-log", get_mmc_log, set_mmc_log);
 }
 
 DEFINE_MACHINE_AARCH64("andr36oid-px30", px30_machine_init)
