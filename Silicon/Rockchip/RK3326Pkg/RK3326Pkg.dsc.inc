@@ -52,3 +52,9 @@
 
   # The DesignWare MMC controllers are not cache coherent.
   DmaLib|EmbeddedPkg/Library/NonCoherentDmaLib/NonCoherentDmaLib.inf
+  # Mu's NonCoherentDmaLib links IoMmuLib, whose AARCH64 depex waits for an
+  # IOMMU protocol. No IOMMU sits in front of the PX30's MMC or USB
+  # controllers and nothing installs one, so with that library the SD/eMMC and
+  # USB host drivers are never started. Our drivers map with IommuBase 0,
+  # which never calls into IoMmuLib. r36sPkg/Tools/check-depex.py guards this.
+  IoMmuLib|MdeModulePkg/Library/IoMmuLibNull/IoMmuLibNull.inf
