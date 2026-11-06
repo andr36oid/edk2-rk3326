@@ -1,15 +1,23 @@
 /** @file
-  Block device over a RAM region: the BOOT FAT image tools/qemu-test.sh
-  loads into the guest (-device loader). qemu has no SD controller the
-  firmware drives, so this stands in for the card's BOOT partition. With the
-  guest RAM in a shared file the script reads back what the firmware wrote.
+  Block devices over RAM regions: the BOOT FAT images tools/qemu-test.sh
+  loads into the guest (-device loader). qemu has no SD/eMMC controller the
+  firmware drives, so these stand in for the SD card's BOOT partition (at
+  PcdMemDiskBase) and the eMMC's (right after it, only if an image is there).
+  Like RkSdmmcDxe, the eMMC shows up at start only when the bootloader's
+  bootargs say andr36oid.bootpart=0:..., else when gRkEmmcRequestEventGuid
+  is signalled. With the guest RAM in a shared file the script reads back
+  what the firmware wrote.
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 **/
 
 #include <Uefi.h>
+#include <Guid/QemuVirtPlatformInfoHob.h>
+#include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
+#include <Library/FdtLib.h>
+#include <Library/HobLib.h>
 #include <Library/PcdLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/BlockIo.h>
@@ -22,27 +30,36 @@ typedef struct {
   EFI_DEVICE_PATH_PROTOCOL    End;
 } MEM_DISK_DEVICE_PATH;
 
-STATIC MEM_DISK_DEVICE_PATH  mDevicePath = {
-  {
-    { HARDWARE_DEVICE_PATH, HW_VENDOR_DP, { sizeof (VENDOR_DEVICE_PATH), 0 } },
-    { 0x93f1a6c5, 0x2e48, 0x4b7d, { 0x8a, 0x0c, 0x51, 0xe9, 0x3d, 0x76, 0xb2, 0x4f } }
-  },
-  { END_DEVICE_PATH_TYPE, END_ENTIRE_DEVICE_PATH_SUBTYPE, { sizeof (EFI_DEVICE_PATH_PROTOCOL), 0 } }
-};
+typedef struct {
+  CONST CHAR8                 *Name;
+  EFI_PHYSICAL_ADDRESS        Base;
+  MEM_DISK_DEVICE_PATH        DevicePath;
+  EFI_BLOCK_IO_MEDIA          Media;
+  EFI_BLOCK_IO_PROTOCOL       BlockIo;
+  EFI_HANDLE                  Handle;
+} MEM_DISK;
 
-STATIC EFI_BLOCK_IO_MEDIA     mMedia;
-STATIC EFI_BLOCK_IO_PROTOCOL  mBlockIo;
+#define END_NODE  { END_DEVICE_PATH_TYPE, END_ENTIRE_DEVICE_PATH_SUBTYPE, { sizeof (EFI_DEVICE_PATH_PROTOCOL), 0 } }
+#define VENDOR(...)  { { HARDWARE_DEVICE_PATH, HW_VENDOR_DP, { sizeof (VENDOR_DEVICE_PATH), 0 } }, __VA_ARGS__ }
+
+STATIC MEM_DISK  mDisks[2] = {
+  // gQemuVirtMemDiskGuid: the SD card
+  { "SD", 0, { VENDOR ({ 0x93f1a6c5, 0x2e48, 0x4b7d, { 0x8a, 0x0c, 0x51, 0xe9, 0x3d, 0x76, 0xb2, 0x4f } }), END_NODE } },
+  // gQemuVirtMemDiskEmmcGuid: the eMMC
+  { "eMMC", 0, { VENDOR ({ 0x6a3c1f80, 0x4d2e, 0x4b19, { 0x9f, 0x57, 0x0e, 0x84, 0xb3, 0x2a, 0x61, 0xd5 } }), END_NODE } }
+};
 
 STATIC
 EFI_STATUS
 Check (
-  IN UINT32   MediaId,
-  IN EFI_LBA  Lba,
-  IN UINTN    BufferSize,
-  IN VOID     *Buffer
+  IN MEM_DISK  *Disk,
+  IN UINT32    MediaId,
+  IN EFI_LBA   Lba,
+  IN UINTN     BufferSize,
+  IN VOID      *Buffer
   )
 {
-  if (MediaId != mMedia.MediaId) {
+  if (MediaId != Disk->Media.MediaId) {
     return EFI_MEDIA_CHANGED;
   }
 
@@ -50,7 +67,7 @@ Check (
     return EFI_INVALID_PARAMETER;
   }
 
-  if ((Lba > mMedia.LastBlock) || (BufferSize / BLOCK_SIZE > mMedia.LastBlock + 1 - Lba)) {
+  if ((Lba > Disk->Media.LastBlock) || (BufferSize / BLOCK_SIZE > Disk->Media.LastBlock + 1 - Lba)) {
     return EFI_INVALID_PARAMETER;
   }
 
@@ -79,10 +96,11 @@ MemDiskRead (
   OUT VOID                   *Buffer
   )
 {
-  EFI_STATUS  Status = Check (MediaId, Lba, BufferSize, Buffer);
+  MEM_DISK    *Disk  = BASE_CR (This, MEM_DISK, BlockIo);
+  EFI_STATUS  Status = Check (Disk, MediaId, Lba, BufferSize, Buffer);
 
   if (!EFI_ERROR (Status)) {
-    CopyMem (Buffer, (VOID *)(UINTN)(FixedPcdGet64 (PcdMemDiskBase) + Lba * BLOCK_SIZE), BufferSize);
+    CopyMem (Buffer, (VOID *)(UINTN)(Disk->Base + Lba * BLOCK_SIZE), BufferSize);
   }
 
   return Status;
@@ -99,10 +117,11 @@ MemDiskWrite (
   IN VOID                   *Buffer
   )
 {
-  EFI_STATUS  Status = Check (MediaId, Lba, BufferSize, Buffer);
+  MEM_DISK    *Disk  = BASE_CR (This, MEM_DISK, BlockIo);
+  EFI_STATUS  Status = Check (Disk, MediaId, Lba, BufferSize, Buffer);
 
   if (!EFI_ERROR (Status)) {
-    CopyMem ((VOID *)(UINTN)(FixedPcdGet64 (PcdMemDiskBase) + Lba * BLOCK_SIZE), Buffer, BufferSize);
+    CopyMem ((VOID *)(UINTN)(Disk->Base + Lba * BLOCK_SIZE), Buffer, BufferSize);
   }
 
   return Status;
@@ -118,6 +137,79 @@ MemDiskFlush (
   return EFI_SUCCESS;
 }
 
+STATIC
+EFI_STATUS
+AddDisk (
+  IN MEM_DISK  *Disk
+  )
+{
+  Disk->Media.MediaId     = 1;
+  Disk->Media.MediaPresent = TRUE;
+  Disk->Media.BlockSize   = BLOCK_SIZE;
+  Disk->Media.LastBlock   = FixedPcdGet64 (PcdMemDiskSize) / BLOCK_SIZE - 1;
+
+  Disk->BlockIo.Revision    = EFI_BLOCK_IO_PROTOCOL_REVISION;
+  Disk->BlockIo.Media       = &Disk->Media;
+  Disk->BlockIo.Reset       = MemDiskReset;
+  Disk->BlockIo.ReadBlocks  = MemDiskRead;
+  Disk->BlockIo.WriteBlocks = MemDiskWrite;
+  Disk->BlockIo.FlushBlocks = MemDiskFlush;
+
+  DEBUG ((DEBUG_INIT, "MemDisk: %a BOOT image at 0x%lx, %lu MB\n", Disk->Name, Disk->Base, FixedPcdGet64 (PcdMemDiskSize) >> 20));
+  return gBS->InstallMultipleProtocolInterfaces (
+                &Disk->Handle,
+                &gEfiBlockIoProtocolGuid,
+                &Disk->BlockIo,
+                &gEfiDevicePathProtocolGuid,
+                &Disk->DevicePath,
+                NULL
+                );
+}
+
+STATIC
+VOID
+EFIAPI
+OnEmmcRequest (
+  IN EFI_EVENT  Event,
+  IN VOID       *Context
+  )
+{
+  gBS->CloseEvent (Event);
+  if (mDisks[1].Handle == NULL) {
+    DEBUG ((DEBUG_INIT, "MemDisk: eMMC asked for\n"));
+    AddDisk (&mDisks[1]);
+  }
+}
+
+/**
+  The bootloader said the system is on the eMMC (andr36oid.bootpart=0:...).
+**/
+STATIC
+BOOLEAN
+BootpartIsEmmc (
+  VOID
+  )
+{
+  EFI_HOB_GUID_TYPE        *Hob = GetFirstGuidHob (&gQemuVirtPlatformInfoHobGuid);
+  QEMU_VIRT_PLATFORM_INFO  *Qemu;
+  CONST CHAR8              *Args;
+  INT32                    Node;
+  INT32                    Len;
+
+  if (Hob == NULL) {
+    return FALSE;
+  }
+
+  Qemu = GET_GUID_HOB_DATA (Hob);
+  if ((Qemu->Fdt == 0) || (FdtCheckHeader ((VOID *)(UINTN)Qemu->Fdt) != 0)) {
+    return FALSE;
+  }
+
+  Node = FdtPathOffset ((VOID *)(UINTN)Qemu->Fdt, "/chosen");
+  Args = (Node >= 0) ? FdtGetProp ((VOID *)(UINTN)Qemu->Fdt, Node, "bootargs", &Len) : NULL;
+  return (Args != NULL) && (Len > 0) && (AsciiStrStr (Args, "andr36oid.bootpart=0:") != NULL);
+}
+
 EFI_STATUS
 EFIAPI
 MemDiskDxeInitialize (
@@ -125,32 +217,21 @@ MemDiskDxeInitialize (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  EFI_HANDLE  Handle = NULL;
+  EFI_EVENT    Event;
+  CONST UINT8  *Emmc;
 
-  mMedia.MediaId          = 1;
-  mMedia.RemovableMedia   = FALSE;
-  mMedia.MediaPresent     = TRUE;
-  mMedia.LogicalPartition = FALSE;
-  mMedia.ReadOnly         = FALSE;
-  mMedia.WriteCaching     = FALSE;
-  mMedia.BlockSize        = BLOCK_SIZE;
-  mMedia.IoAlign          = 0;
-  mMedia.LastBlock        = FixedPcdGet64 (PcdMemDiskSize) / BLOCK_SIZE - 1;
+  mDisks[0].Base = FixedPcdGet64 (PcdMemDiskBase);
+  mDisks[1].Base = FixedPcdGet64 (PcdMemDiskBase) + FixedPcdGet64 (PcdMemDiskSize);
 
-  mBlockIo.Revision    = EFI_BLOCK_IO_PROTOCOL_REVISION;
-  mBlockIo.Media       = &mMedia;
-  mBlockIo.Reset       = MemDiskReset;
-  mBlockIo.ReadBlocks  = MemDiskRead;
-  mBlockIo.WriteBlocks = MemDiskWrite;
-  mBlockIo.FlushBlocks = MemDiskFlush;
+  // No eMMC image loaded: no boot sector signature, no eMMC.
+  Emmc = (CONST UINT8 *)(UINTN)mDisks[1].Base;
+  if ((Emmc[510] == 0x55) && (Emmc[511] == 0xAA)) {
+    if (BootpartIsEmmc ()) {
+      AddDisk (&mDisks[1]);
+    } else {
+      gBS->CreateEventEx (EVT_NOTIFY_SIGNAL, TPL_CALLBACK, OnEmmcRequest, NULL, &gRkEmmcRequestEventGuid, &Event);
+    }
+  }
 
-  DEBUG ((DEBUG_INIT, "MemDisk: BOOT image at 0x%lx, %lu MB\n", FixedPcdGet64 (PcdMemDiskBase), FixedPcdGet64 (PcdMemDiskSize) >> 20));
-  return gBS->InstallMultipleProtocolInterfaces (
-                &Handle,
-                &gEfiBlockIoProtocolGuid,
-                &mBlockIo,
-                &gEfiDevicePathProtocolGuid,
-                &mDevicePath,
-                NULL
-                );
+  return AddDisk (&mDisks[0]);
 }

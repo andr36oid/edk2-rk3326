@@ -72,7 +72,7 @@ BuildMap (
   EFI_PHYSICAL_ADDRESS     StackEnd  = StackBase + FixedPcdGet32 (PcdCPUCorePrimaryStackSize);
   EFI_PHYSICAL_ADDRESS     HeapEnd   = StackEnd + DXE_HEAP_SIZE;
   EFI_PHYSICAL_ADDRESS     DiskBase  = FixedPcdGet64 (PcdMemDiskBase);
-  EFI_PHYSICAL_ADDRESS     DiskEnd   = DiskBase + FixedPcdGet64 (PcdMemDiskSize);
+  EFI_PHYSICAL_ADDRESS     DiskEnd   = DiskBase + 2 * FixedPcdGet64 (PcdMemDiskSize);   // SD, eMMC
   EFI_PHYSICAL_ADDRESS     RamTop;
 
   QemuVirtGetPlatformInfo (&Info);
@@ -95,7 +95,7 @@ BuildMap (
   // qemu's FDT, the boot app reads it like U-Boot's on the RK3326.
   Add ("Bootloader FDT", QEMU_VIRT_FDT_BASE, QEMU_VIRT_FDT_SIZE, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK);
   AddRam (QEMU_VIRT_FDT_BASE + QEMU_VIRT_FDT_SIZE, DiskBase);
-  // The BOOT FAT image: never handed out, MemDiskDxe serves it as a disk.
+  // The BOOT FAT images: never handed out, MemDiskDxe serves them as disks.
   Add ("BOOT Disk", DiskBase, DiskEnd - DiskBase, AddMem, SYS_MEM, SYS_MEM_CAP, Reserv, WRITE_BACK);
   AddRam (DiskEnd, RamTop);
 

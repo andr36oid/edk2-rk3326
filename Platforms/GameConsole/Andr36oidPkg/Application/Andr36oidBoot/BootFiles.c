@@ -14,6 +14,7 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/RkLogLib.h>
 #include <Library/UefiBootServicesTableLib.h>
+#include <Library/UefiLib.h>
 
 STATIC
 EFI_STATUS
@@ -52,26 +53,28 @@ BootFileExists (
 //
 // BDS starts the app from the firmware volume without connecting the storage
 // drivers (SD/eMMC, partitions, FAT): connect everything once, as BDS's
-// "connect all" does, until no new handles appear.
+// "connect all" does, until no new handles appear. Again after the eMMC
+// was asked for.
 //
+STATIC BOOLEAN  mConnected = FALSE;
+
 STATIC
 VOID
 ConnectAll (
   VOID
   )
 {
-  STATIC BOOLEAN  Done = FALSE;
   EFI_HANDLE      *Handles;
   UINTN           Count;
   UINTN           Before = 0;
   UINTN           Pass;
   UINTN           I;
 
-  if (Done) {
+  if (mConnected) {
     return;
   }
 
-  Done = TRUE;
+  mConnected = TRUE;
   for (Pass = 0; Pass < 4; Pass++) {
     if (EFI_ERROR (gBS->LocateHandleBuffer (AllHandles, NULL, NULL, &Count, &Handles))) {
       return;
@@ -89,6 +92,15 @@ ConnectAll (
 
     FreePool (Handles);
   }
+}
+
+VOID
+BootRequestEmmc (
+  VOID
+  )
+{
+  EfiEventGroupSignal (&gRkEmmcRequestEventGuid);
+  mConnected = FALSE;
 }
 
 EFI_FILE_PROTOCOL *

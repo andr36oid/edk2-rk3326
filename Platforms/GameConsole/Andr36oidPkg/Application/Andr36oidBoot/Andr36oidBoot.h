@@ -41,6 +41,16 @@ BootOpenVolume (
   );
 
 /**
+  Ask the platform for the eMMC on a start that did not come from it
+  (gRkEmmcRequestEventGuid: RkSdmmcDxe switches its pins over and adds it);
+  the next BootOpenVolume connects it.
+**/
+VOID
+BootRequestEmmc (
+  VOID
+  );
+
+/**
   Whole file into pool memory, with a 0 after it. EFI_NOT_FOUND if it is
   not there, EFI_BAD_BUFFER_SIZE if larger than MaxSize.
 **/

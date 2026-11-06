@@ -141,6 +141,15 @@ VolumeLoad (
 }
 
 STATIC
+CONST CHAR8 *
+DeviceName (
+  IN BOOT_DEVICE_KIND  Kind
+  )
+{
+  return (Kind == BootDeviceEmmc) ? "eMMC" : ((Kind == BootDeviceSd) ? "SD card" : "unknown");
+}
+
+STATIC
 VOID
 GatherFacts (
   IN  CONST BOOT_PLATFORM_INFO  *Pi,
@@ -158,8 +167,7 @@ GatherFacts (
   if (BootPolicyParseUbootArgs (Args, Facts)) {
     Say ("boot: U-Boot says hwrev=%a ram_mb=%u bootpart=%a\n", Facts->HwRev, Facts->RamMb, Facts->BootFromEmmc ? "0:1" : "1:1");
   } else {
-    Facts->BootFromEmmc = (Pi->BootDevice == BootDeviceEmmc);
-    Say ("boot: no facts from U-Boot, using the board's\n");
+    Say ("boot: no facts from U-Boot, using the board's (started from %a)\n", DeviceName (Pi->BootDevice));
   }
 
   if (Facts->HwRev[0] == '\0') {
@@ -195,11 +203,12 @@ GatherFacts (
 
 //
 // eMMC Installation step 2 (boot.ini's emmc-test.txt): mark the test tried on
-// the SD card, then start from the eMMC once. Without an eMMC the UEFI can
-// read the test is left for a later start through U-Boot.
+// the SD card (written and read back), then start from the eMMC once if its
+// BOOT has boot.ini and the DTB; else the SD card's start goes on. The eMMC
+// is asked for first: on an SD start the platform leaves it alone.
 //
 STATIC
-BOOLEAN
+VOID
 EmmcTest (
   IN OUT BOOT_VOLUME  *Sd,
   IN OUT BOOT_FACTS   *Facts
@@ -209,32 +218,29 @@ EmmcTest (
   EFI_FILE_PROTOCOL   *Emmc;
   CHAR8               Value[16];
 
-  Emmc = BootOpenVolume (BootDeviceEmmc);
-  if (Emmc == NULL) {
-    Say ("boot: eMMC test: no eMMC BOOT here, left for a start through U-Boot\n");
-    return FALSE;
-  }
-
-  if (!BootFileExists (Emmc, BOOT_FILE_BOOT_INI) || !BootFileExists (Emmc, BOOT_FILE_DTB) ||
-      EFI_ERROR (BootWriteFile (Sd->Root, BOOT_FILE_EMMC_TEST, Tried, sizeof (Tried) - 1)))
-  {
-    Say ("boot: eMMC test: eMMC BOOT incomplete or emmc-test.txt not writable\n");
-    Emmc->Close (Emmc);
-    return FALSE;
-  }
-
+  BootWriteFile (Sd->Root, BOOT_FILE_EMMC_TEST, Tried, sizeof (Tried) - 1);
   VolumeLoad (Sd);
   if (!BootPolicyEnvGet (&Sd->Files.EmmcTest, "emmc_test", Value, sizeof (Value)) || (AsciiStrCmp (Value, "tried") != 0)) {
-    Say ("boot: eMMC test: emmc-test.txt did not read back\n");
-    Emmc->Close (Emmc);
-    return FALSE;
+    Say ("boot: eMMC test: emmc-test.txt not writable\n");
+    return;
+  }
+
+  BootRequestEmmc ();
+  Emmc = BootOpenVolume (BootDeviceEmmc);
+  if ((Emmc == NULL) || !BootFileExists (Emmc, BOOT_FILE_BOOT_INI) || !BootFileExists (Emmc, BOOT_FILE_DTB)) {
+    Say ("boot: eMMC test: eMMC not readable here\n");
+    if (Emmc != NULL) {
+      Emmc->Close (Emmc);
+    }
+
+    return;
   }
 
   Say ("boot: eMMC test: starting from the eMMC\n");
+  Sd->Root->Close (Sd->Root);
   Sd->Root            = Emmc;
   Facts->BootFromEmmc = TRUE;
   VolumeLoad (Sd);
-  return TRUE;
 }
 
 //
@@ -385,7 +391,9 @@ Andr36oidBootMain (
   BOOT_PLAN           *Plan;
   BOOT_CHOICE         Choice = BootChoiceNone;
   EFI_INPUT_KEY       Key;
-  BOOLEAN             KeyMenu = FALSE;
+  BOOLEAN             KeyMenu   = FALSE;
+  BOOLEAN             EmmcTried = FALSE;
+  BOOT_DEVICE_KIND    Kind;
   CHAR8               Message[160];
 
   Plan = AllocateZeroPool (sizeof (*Plan));
@@ -416,14 +424,33 @@ Andr36oidBootMain (
 
   Say ("boot: board %a, hwrev %a, %u MB, keys fn=%d select=%d start=%d\n", Pi.Name, Facts.HwRev, Facts.RamMb, Keys.Fn, Keys.Select, Keys.Start);
 
-  // Without BOOT only the menu is left (Save log has nowhere to go either).
+  //
+  // BOOT: where U-Boot said (andr36oid.bootpart); without U-Boot the way its
+  // board.c picks andr36oid_part: the SD card's, else the eMMC's. The other
+  // one also stands in when the first is not readable. Without BOOT only
+  // the menu is left (Save log has nowhere to go either).
+  //
   for ( ; ;) {
-    Vol.Root = BootOpenVolume (Facts.BootFromEmmc ? BootDeviceEmmc : BootDeviceSd);
+    Kind     = Facts.BootFromEmmc ? BootDeviceEmmc : BootDeviceSd;
+    Vol.Root = BootOpenVolume (Kind);
+    if (Vol.Root == NULL) {
+      Kind = (Kind == BootDeviceSd) ? BootDeviceEmmc : BootDeviceSd;
+      if (Kind == BootDeviceEmmc) {
+        BootRequestEmmc ();
+      }
+
+      Vol.Root = BootOpenVolume (Kind);
+      if (Vol.Root != NULL) {
+        Say ("boot: no BOOT on the %a, using the %a's\n", DeviceName (Facts.BootFromEmmc ? BootDeviceEmmc : BootDeviceSd), DeviceName (Kind));
+        Facts.BootFromEmmc = (Kind == BootDeviceEmmc);
+      }
+    }
+
     if (Vol.Root != NULL) {
       break;
     }
 
-    AsciiSPrint (Message, sizeof (Message), "No BOOT partition with Image or boot.ini on the %a", Facts.BootFromEmmc ? "eMMC" : "SD card");
+    AsciiSPrint (Message, sizeof (Message), "No BOOT partition with Image or boot.ini on the SD card or the eMMC");
     Say ("boot: %a\n", Message);
     Choice = BootMenu (NULL, Message);
   }
@@ -445,8 +472,10 @@ Andr36oidBootMain (
       continue;
     }
 
-    if (Plan->EmmcTest && EmmcTest (&Vol, &Facts)) {
-      continue;     // decide again with the eMMC's files
+    if (Plan->EmmcTest && !EmmcTried) {
+      EmmcTried = TRUE;
+      EmmcTest (&Vol, &Facts);
+      continue;     // decide again: emmc-test.txt says tried, or the eMMC's files
     }
 
     Say (

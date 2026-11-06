@@ -41,5 +41,8 @@
 [Protocols]
   gEfiSimpleFileSystemProtocolGuid
 
+[Guids]
+  gRkEmmcRequestEventGuid
+
 [FeaturePcd]
   gAndr36oidPkgTokenSpaceGuid.PcdBootSerialConsole

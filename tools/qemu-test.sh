@@ -19,9 +19,10 @@ OUT=${1:-/srv/andr36oid-uefi/scratch-bootapp/qemu}
 FW=$ROOT/Mu-qemuvirt.bin
 DISK_ADDR=0x50000000        # PcdMemDiskBase
 DISK_MB=32                  # PcdMemDiskSize
+EMMC_ADDR=0x52000000        # the eMMC's BOOT image right after the SD card's
 RAM_BASE_MB=1024            # guest RAM starts at 1 GB
 TIMEOUT=${QEMU_TIMEOUT:-180}
-CASES=" ${QEMU_CASES:-android recovery menu poweroff reset logo} "
+CASES=" ${QEMU_CASES:-android recovery menu poweroff reset logo emmc emmctest emmcnative} "
 want() { [[ $CASES == *" $1 "* ]]; }
 mkdir -p "$OUT"
 fail=0
@@ -42,7 +43,7 @@ cmp -s "$OUT/Image-0" "$OUT/Image-0x10000000" || { echo "FAIL test kernel is not
 mv "$OUT/Image-0" "$OUT/Image"
 
 # Ramdisks: a payload the test kernel recognises, wrapped like mkimg.sh does.
-for rd in android:ramdisk stock:ramdisk-stock recovery:ramdisk-recovery; do
+for rd in android:ramdisk stock:ramdisk-stock recovery:ramdisk-recovery emmc:ramdisk-emmc; do
     name=${rd%%:*}; file=${rd#*:}
     { printf 'ANDR36OID-TEST-INITRD:%s\n' "$name"; head -c 300000 /dev/urandom | base64; printf 'INITRD-END\n'; } > "$OUT/$file.cpio"
     mkimage -A arm64 -O linux -T ramdisk -C none -n "andr36oid test $name" -d "$OUT/$file.cpio" "$OUT/$file.uimg" >/dev/null || exit 2
@@ -81,12 +82,16 @@ run() {
     [ -n "$append" ] && args+=(-append "$append")
     # A bootloader FDT of the case's own (QEMU still adds /chosen and /memory)
     [ -f "$OUT/$c.dtb" ] && args+=(-dtb "$OUT/$c.dtb")
+    # An eMMC with its own BOOT
+    [ -f "$OUT/$c-emmc.img" ] && args+=(-device loader,file="$OUT/$c-emmc.img",addr=$EMMC_ADDR,force-raw=on)
     echo "== $c ($machine)"
     python3 "$T/qemu-run.py" "$OUT/$c.log" "$TIMEOUT" "$@" -- qemu-system-aarch64 "${args[@]}"
     local code=$?
     tr -d '\r' < "$OUT/$c.log" > "$OUT/$c.txt"
     # BOOT as the firmware left it
     dd if="$ram" of="$OUT/$c-after.img" bs=1M skip=$(( (DISK_ADDR >> 20) - RAM_BASE_MB )) count=$DISK_MB status=none
+    [ -f "$OUT/$c-emmc.img" ] &&
+        dd if="$ram" of="$OUT/$c-emmc-after.img" bs=1M skip=$(( (EMMC_ADDR >> 20) - RAM_BASE_MB )) count=$DISK_MB status=none
     rm -f "$ram"
     if [ $code = 0 ]; then echo "ok   $c: QEMU powered off"; else echo "FAIL $c: QEMU exit $code (124 = timeout)"; fail=1; fi
 }
@@ -108,6 +113,10 @@ line() {     # <case> <exact line>
 noboot() {   # <case> <file>: the firmware did not write it
     if mtype -i "$OUT/$1-after.img" "::$2" >/dev/null 2>&1; then echo "FAIL $1: BOOT/$2 written"; fail=1; else echo "ok   $1: no BOOT/$2"; fi
 }
+onemmc() {   # <case> <file> <text>: in a file the firmware wrote to the eMMC's BOOT
+    if mtype -i "$OUT/$1-emmc-after.img" "::$2" 2>/dev/null | tr -d '\r' | grep -qF -- "$3"; then
+        echo "ok   $1: eMMC BOOT/$2 has '$3'"; else echo "FAIL $1: eMMC BOOT/$2 lacks '$3'"; fail=1; fi
+}
 onboot() {   # <case> <file> <text>: in a file the firmware wrote to BOOT
     if mtype -i "$OUT/$1-after.img" "::$2" 2>/dev/null | tr -d '\r' | grep -qF -- "$3"; then
         echo "ok   $1: BOOT/$2 has '$3'"; else echo "FAIL $1: BOOT/$2 lacks '$3'"; fail=1; fi
@@ -128,10 +137,13 @@ echo "== DTB: $DTB"
 RD="$OUT/ramdisk.uimg:ramdisk.uimg $OUT/ramdisk-stock.uimg:ramdisk-stock.uimg $OUT/ramdisk-recovery.uimg:ramdisk-recovery.uimg"
 
 # 1. EL2, a normal Android start through the chainload hook's facts, with a
-#    device profile and Kernel Tweaks; one warm restart for the previous log.
+#    device profile and Kernel Tweaks; one warm restart for the previous log;
+#    an eMMC test (emmc-test.txt) on a console without eMMC.
 if want android; then
     printf 'kt_args=qemu_test.kt=1 qemu_test.reset_once\n' > "$OUT/kt.txt"
-    mkboot "$OUT/android.img" $K $RD "$DTB:rk3326-r36s-android.dtb" "$OUT/boot.ini-profile:boot.ini" "$OUT/kt.txt:kernel-tweaks.txt" || exit 2
+    printf 'emmc_test=start\n' > "$OUT/emmc-test.txt"
+    mkboot "$OUT/android.img" $K $RD "$DTB:rk3326-r36s-android.dtb" "$OUT/boot.ini-profile:boot.ini" "$OUT/kt.txt:kernel-tweaks.txt" \
+        "$OUT/emmc-test.txt:emmc-test.txt" || exit 2
     run android "virt,virtualization=on,gic-version=2" "$FACTS"
     has android "TESTKERNEL: started at EL2"
     line android "TESTKERNEL: bootargs=$BASE androidboot.lcd_density=304 androidboot.revision=rg351mp androidboot.serialno=QEMU0001 androidboot.boot_devices=ff370000.dwmmc $CONSOLE qemu_test.kt=1 qemu_test.reset_once"
@@ -144,6 +156,9 @@ if want android; then
     onboot android uefi-log.txt "boot: starting Linux"
     # Linux reuses the log RAM, so a start that reached it leaves no previous log.
     noboot android uefi-log-prev.txt
+    # emmc-test.txt said start, but there is no eMMC: marked tried, SD start
+    has android "boot: eMMC test: eMMC not readable here"
+    onboot android emmc-test.txt "emmc_test=tried"
 fi
 
 # 2. EL1 (PSCI over HVC), recovery.txt, no facts from U-Boot (no -append):
@@ -223,6 +238,51 @@ if want logo; then
     has logo "TESTKERNEL: reserved drm-logo@00000000 0x00000000$lo+0x0000000001000000"
     count logo "TESTKERNEL: RESULT PASS" 1
     hasnt logo "TESTKERNEL: FAIL"
+fi
+
+# 7. U-Boot says the system is on the eMMC (andr36oid.bootpart=0:1): BOOT is
+# the eMMC's (its own ramdisk, datacard.txt), not the SD card's.
+EMMC_FACTS="andr36oid.hwrev=rg351mp andr36oid.serialno=QEMU0001 andr36oid.ram_mb=1024 andr36oid.bootpart=0:1"
+EMMC_RD="$OUT/ramdisk-emmc.uimg:ramdisk.uimg"
+if want emmc; then
+    printf 'datacard=5c0a7e21-0d1b-4e5a-9b8e-2f3c4d5e6f70\n' > "$OUT/datacard.txt"
+    mkboot "$OUT/emmc.img" $K $RD "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" || exit 2
+    mkboot "$OUT/emmc-emmc.img" $K "$EMMC_RD" "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" "$OUT/datacard.txt:datacard.txt" || exit 2
+    run emmc "virt,virtualization=on,gic-version=2" "$EMMC_FACTS"
+    line emmc "TESTKERNEL: bootargs=$BASE androidboot.revision=rg351mp androidboot.serialno=QEMU0001 androidboot.boot_devices=ff390000.dwmmc $CONSOLE dw_mmc_rockchip.builtin_emmc=system androidboot.fstab_suffix=emmcsd androidboot.datacard=5c0a7e21-0d1b-4e5a-9b8e-2f3c4d5e6f70"
+    has emmc "TESTKERNEL: initrd name=emmc"
+    count emmc "TESTKERNEL: RESULT PASS" 1
+    onemmc emmc uefi-log.txt "boot: starting Linux"
+    noboot emmc uefi-log.txt
+fi
+
+# 8. eMMC Installation step 2 from an SD start: emmc-test.txt says start, the
+# eMMC is asked for (it is not there before), the test is marked tried on the
+# SD card and the eMMC's system starts.
+if want emmctest; then
+    mkboot "$OUT/emmctest.img" $K $RD "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" "$OUT/emmc-test.txt:emmc-test.txt" || exit 2
+    mkboot "$OUT/emmctest-emmc.img" $K "$EMMC_RD" "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" || exit 2
+    run emmctest "virt,virtualization=on,gic-version=2" "$FACTS"
+    has emmctest "MemDisk: eMMC asked for"
+    has emmctest "boot: eMMC test: starting from the eMMC"
+    line emmctest "TESTKERNEL: bootargs=$BASE androidboot.revision=rg351mp androidboot.serialno=QEMU0001 androidboot.boot_devices=ff390000.dwmmc $CONSOLE dw_mmc_rockchip.builtin_emmc=system androidboot.fstab_suffix=emmc"
+    has emmctest "TESTKERNEL: initrd name=emmc"
+    count emmctest "TESTKERNEL: RESULT PASS" 1
+    onboot emmctest emmc-test.txt "emmc_test=tried"
+    onemmc emmctest uefi-log.txt "boot: eMMC test: starting from the eMMC"
+fi
+
+# 9. No U-Boot, no BOOT on the SD card: as U-Boot's board.c does, the eMMC's
+# BOOT (asked for first).
+if want emmcnative; then
+    mkboot "$OUT/emmcnative.img" || exit 2
+    mkboot "$OUT/emmcnative-emmc.img" $K "$EMMC_RD" "$DTB:rk3326-r36s-android.dtb" "$INI:boot.ini" || exit 2
+    run emmcnative "virt,gic-version=2" ""
+    has emmcnative "boot: no BOOT on the SD card, using the eMMC's"
+    line emmcnative "TESTKERNEL: bootargs=$BASE androidboot.revision=v00 androidboot.serialno=$SERIAL androidboot.boot_devices=ff390000.dwmmc $CONSOLE dw_mmc_rockchip.builtin_emmc=system androidboot.fstab_suffix=emmc"
+    has emmcnative "TESTKERNEL: initrd name=emmc"
+    count emmcnative "TESTKERNEL: RESULT PASS" 1
+    onemmc emmcnative uefi-log.txt "boot: starting Linux"
 fi
 
 [ $fail = 0 ] && echo "== QEMU tests passed" || { echo "== QEMU tests FAILED (logs in $OUT/*.txt)"; exit 1; }

@@ -22,3 +22,4 @@
 [Guids]
   gQemuVirtPlatformInfoHobGuid
   gQemuVirtMemDiskGuid
+  gQemuVirtMemDiskEmmcGuid

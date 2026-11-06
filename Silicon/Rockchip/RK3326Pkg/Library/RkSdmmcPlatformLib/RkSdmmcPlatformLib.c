@@ -34,6 +34,23 @@ RkSdmmcSetIoMux (
   GpioSetIomuxConfig (mSdmmc0IomuxConfig, ARRAY_SIZE (mSdmmc0IomuxConfig));
 }
 
+VOID
+EFIAPI
+RkSdmmcSetEmmcIoMux (
+  VOID
+  )
+{
+  // U-Boot's andr36oid_emmc_pins (board.c): GPIO1_A0-A7 data, B1 clock,
+  // B2 command, pulls, 8 mA drive. SYS_GRF hiword-mask registers.
+  MmioWrite32 (0xFF140000 + 0x00, 0xFFFF2222);
+  MmioWrite32 (0xFF140000 + 0x04, 0xFFFF2222);
+  MmioWrite32 (0xFF140000 + 0x08, 0x0FF00220);
+  MmioWrite32 (0xFF140000 + 0x60, 0xFFFF5555);
+  MmioWrite32 (0xFF140000 + 0x64, 0x003C0010);
+  MmioWrite32 (0xFF140000 + 0xF0, 0xFFFFAAAA);
+  MmioWrite32 (0xFF140000 + 0xF4, 0x003C0028);
+}
+
 RKSDMMC_CARD_PRESENCE_STATE
 EFIAPI
 RkSdmmcGetCardPresenceState (
