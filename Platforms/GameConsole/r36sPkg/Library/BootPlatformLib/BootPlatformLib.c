@@ -12,7 +12,9 @@
 #include <Library/DevicePathLib.h>
 #include <Library/HobLib.h>
 #include <Library/IoLib.h>
+#include <Library/MemoryAllocationLib.h>
 #include <Library/TimerLib.h>
+#include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/NonDiscoverableDevice.h>
 #include <Soc/Rk3326.h>
 
@@ -22,12 +24,65 @@
 //
 // Same layout as MemoryMapLib: BL31 and its shared memory sit in the first
 // 2 MB (U-Boot's bidram keeps 0-2 MB out of /memory, ramoops lives there),
-// OP-TEE where the miniloader's tags say, else at 0x08400000. Only used when
-// no bootloader FDT gives /memory.
+// OP-TEE where the miniloader's tags say if MemoryMapLib took that, else at
+// 0x08400000. Only used when no bootloader FDT gives /memory.
 //
 #define LINUX_RAM_START  0x00200000
 #define OPTEE_BASE       0x08400000
 #define OPTEE_SIZE       0x01000000
+
+/**
+  TRUE if the UEFI memory map has a reserved range starting at Base that is
+  at least Size long: MemoryMapLib reserved OP-TEE there. Its rule for the
+  miniloader's tag (clear of the DXE heap, below 512 MB) is only known to
+  it, so this reads the outcome instead of repeating the rule.
+**/
+STATIC
+BOOLEAN
+ReservedAt (
+  IN UINT64  Base,
+  IN UINT64  Size
+  )
+{
+  EFI_MEMORY_DESCRIPTOR  *Map = NULL;
+  EFI_MEMORY_DESCRIPTOR  *D;
+  UINTN                  MapSize = 0;
+  UINTN                  MapKey;
+  UINTN                  DescSize;
+  UINT32                 DescVersion;
+  UINTN                  Offset;
+  BOOLEAN                Found = FALSE;
+  EFI_STATUS             Status;
+
+  Status = gBS->GetMemoryMap (&MapSize, Map, &MapKey, &DescSize, &DescVersion);
+  while (Status == EFI_BUFFER_TOO_SMALL) {
+    if (Map != NULL) {
+      FreePool (Map);
+    }
+
+    MapSize += 4 * DescSize;
+    Map      = AllocatePool (MapSize);
+    if (Map == NULL) {
+      return FALSE;
+    }
+
+    Status = gBS->GetMemoryMap (&MapSize, Map, &MapKey, &DescSize, &DescVersion);
+  }
+
+  for (Offset = 0; !EFI_ERROR (Status) && (Offset + DescSize <= MapSize); Offset += DescSize) {
+    D = (EFI_MEMORY_DESCRIPTOR *)((UINT8 *)Map + Offset);
+    if ((D->Type == EfiReservedMemoryType) && (D->PhysicalStart == Base) && (EFI_PAGES_TO_SIZE (D->NumberOfPages) >= Size)) {
+      Found = TRUE;
+      break;
+    }
+  }
+
+  if (Map != NULL) {
+    FreePool (Map);
+  }
+
+  return Found;
+}
 
 EFI_STATUS
 EFIAPI
@@ -73,7 +128,8 @@ BootPlatformGetInfo (
 
   if ((Rk->Version >= 2) && (GET_GUID_HOB_DATA_SIZE (Hob) >= sizeof (*Rk)) &&
       (Rk->BootTags.TeeSize != 0) && (Rk->BootTags.TeeBase > LINUX_RAM_START) &&
-      (Rk->BootTags.TeeBase + Rk->BootTags.TeeSize < Rk->DramSize))
+      (Rk->BootTags.TeeBase + Rk->BootTags.TeeSize < Rk->DramSize) &&
+      ReservedAt (Rk->BootTags.TeeBase, Rk->BootTags.TeeSize))
   {
     TeeBase = Rk->BootTags.TeeBase;
     TeeEnd  = Rk->BootTags.TeeBase + Rk->BootTags.TeeSize;

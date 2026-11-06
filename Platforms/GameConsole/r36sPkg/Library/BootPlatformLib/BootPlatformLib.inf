@@ -20,7 +20,9 @@
   DevicePathLib
   HobLib
   IoLib
+  MemoryAllocationLib
   TimerLib
+  UefiBootServicesTableLib
 
 [Guids]
   gRkPlatformInfoHobGuid
