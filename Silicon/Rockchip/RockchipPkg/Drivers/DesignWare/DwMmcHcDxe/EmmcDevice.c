@@ -453,83 +453,48 @@ EmmcSendStatus (
 }
 
 /**
-  Send command SEND_TUNING_BLOCK to the EMMC device for HS200 optimal sampling
-  point detection.
+  Poll CMD13 until the card is out of programming state, which is how a
+  switch (CMD6, R1b) is known to be done, and optionally until it is in
+  transfer state. Gives up after a second.
 
-  It may be sent up to 40 times until the host finishes the tuning procedure.
+  @param[in]  PassThru      The pass thru instance.
+  @param[in]  Rca           The relative device address.
+  @param[in]  WantTran      Wait for transfer state, not just "not busy".
+  @param[out] DevStatus     The last status word.
 
-  Refer to EMMC Electrical Standard Spec 5.1 Section 6.6.8 for details.
-
-  @param[in] PassThru       A pointer to the EFI_SD_MMC_PASS_THRU_PROTOCOL
-                            instance.
-  @param[in] BusWidth       The bus width to work.
-
-  @retval EFI_SUCCESS       The operation is done correctly.
-  @retval Others            The operation fails.
+  @retval EFI_SUCCESS       Ready.
+  @retval EFI_TIMEOUT       Still busy after a second.
+  @retval Others            CMD13 failed.
 
 **/
+STATIC
 EFI_STATUS
-EmmcSendTuningBlk (
-  IN EFI_SD_MMC_PASS_THRU_PROTOCOL  *PassThru,
-  IN UINT8                          BusWidth
+EmmcWaitReady (
+  IN  EFI_SD_MMC_PASS_THRU_PROTOCOL  *PassThru,
+  IN  UINT16                         Rca,
+  IN  BOOLEAN                        WantTran,
+  OUT UINT32                         *DevStatus
   )
 {
-  EFI_SD_MMC_COMMAND_BLOCK             SdMmcCmdBlk;
-  EFI_SD_MMC_STATUS_BLOCK              SdMmcStatusBlk;
-  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET  Packet;
-  EFI_STATUS                           Status;
-  UINT8                                TuningBlock[128];
+  EFI_STATUS  Status;
+  UINT32      Try;
+  UINT32      State;
 
-  ZeroMem (&SdMmcCmdBlk, sizeof (SdMmcCmdBlk));
-  ZeroMem (&SdMmcStatusBlk, sizeof (SdMmcStatusBlk));
-  ZeroMem (&Packet, sizeof (Packet));
+  for (Try = 0; Try < 1000; Try++) {
+    Status = EmmcSendStatus (PassThru, Rca, DevStatus);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
 
-  Packet.SdMmcCmdBlk    = &SdMmcCmdBlk;
-  Packet.SdMmcStatusBlk = &SdMmcStatusBlk;
-  Packet.Timeout        = DW_MMC_HC_GENERIC_TIMEOUT;
+    State = EMMC_GET_STATE (*DevStatus);
+    if (WantTran ? (State == EMMC_STATE_TRAN) : (State != EMMC_STATE_PRG)) {
+      return EFI_SUCCESS;
+    }
 
-  SdMmcCmdBlk.CommandIndex    = EMMC_SEND_TUNING_BLOCK;
-  SdMmcCmdBlk.CommandType     = SdMmcCommandTypeAdtc;
-  SdMmcCmdBlk.ResponseType    = SdMmcResponseTypeR1;
-  SdMmcCmdBlk.CommandArgument = 0;
-
-  Packet.InDataBuffer = TuningBlock;
-  if (BusWidth == 8) {
-    Packet.InTransferLength = sizeof (TuningBlock);
-  } else {
-    Packet.InTransferLength = 64;
+    MicroSecondDelay (1000);
   }
 
-  Status = PassThru->PassThru (PassThru, 0, &Packet, NULL);
-
-  return Status;
-}
-
-/**
-  Tunning the clock to get HS200 optimal sampling point.
-
-  Command SEND_TUNING_BLOCK may be sent up to 40 times until the host finishes
-  the tuning procedure.
-
-  Refer to EMMC Electrical Standard Spec 5.1 Section 6.6.8.
-
-  @param[in] DevIo          A pointer to the EFI_DEVICE_IO_PROTOCOL instance.
-  @param[in] PassThru       A pointer to the EFI_SD_MMC_PASS_THRU_PROTOCOL
-                            instance.
-  @param[in] BusWidth       The bus width to work.
-
-  @retval EFI_SUCCESS       The operation is done correctly.
-  @retval Others            The operation fails.
-
-**/
-EFI_STATUS
-EmmcTuningClkForHs200 (
-  IN UINTN                          DevBase,
-  IN EFI_SD_MMC_PASS_THRU_PROTOCOL  *PassThru,
-  IN UINT8                          BusWidth
-  )
-{
-  return EFI_SUCCESS;
+  return EFI_TIMEOUT;
 }
 
 /**
@@ -598,21 +563,16 @@ EmmcSwitchBusWidth (
     return Status;
   }
 
-  do {
-    Status = EmmcSendStatus (PassThru, Rca, &DevStatus);
-    if (EFI_ERROR (Status)) {
-      DEBUG ((
-        DEBUG_ERROR,
-        "EmmcSwitchBusWidth: Send status fails with %r\n",
-        Status
-        ));
-      return Status;
-    }
+  Status = EmmcWaitReady (PassThru, Rca, FALSE, &DevStatus);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "EmmcSwitchBusWidth: Send status fails with %r\n", Status));
+    return Status;
+  }
 
-    //
-    // Check the switch operation is really successful or not.
-    //
-  } while ((DevStatus & 0xf) == EMMC_STATE_PRG);
+  if ((DevStatus & BIT7) != 0) {
+    DEBUG ((DEBUG_ERROR, "EmmcSwitchBusWidth: the card refused bus width %d, status 0x%08x\n", BusWidth, DevStatus));
+    return EFI_DEVICE_ERROR;
+  }
 
   Status = DwMmcHcSetBusWidth (DevBase, IsDdr, BusWidth);
   if (EFI_ERROR (Status)) {
@@ -676,7 +636,7 @@ EmmcSwitchClockFreq (
     return Status;
   }
 
-  Status = EmmcSendStatus (PassThru, Rca, &DevStatus);
+  Status = EmmcWaitReady (PassThru, Rca, FALSE, &DevStatus);
   if (EFI_ERROR (Status)) {
     DEBUG ((
       DEBUG_ERROR,
@@ -707,84 +667,12 @@ EmmcSwitchClockFreq (
 }
 
 /**
-  Switch to the High Speed timing according to request.
-
+  Set the card up for data transfer: select it, read EXT_CSD, switch to high
+  speed timing and the widest bus the slot has. No HS200 or DDR: those need
+  I/O voltage switching and tuning, which these boards don't have.
   Refer to EMMC Electrical Standard Spec 5.1 Section 6.6.8.
 
-  @param[in] DevIo          A pointer to the EFI_DEVICE_IO_PROTOCOL instance.
-  @param[in] PassThru       A pointer to the EFI_SD_MMC_PASS_THRU_PROTOCOL
-                            instance.
-  @param[in] Rca            The relative device address to be assigned.
-  @param[in] ClockFreq      The max clock frequency to be set.
-  @param[in] IsDdr          If TRUE, use dual data rate data simpling method.
-                            Otherwise use single data rate data simpling method.
-  @param[in] BusWidth       The bus width to be set, it could be 4 or 8.
-
-  @retval EFI_SUCCESS       The operation is done correctly.
-  @retval Others            The operation fails.
-
-**/
-EFI_STATUS
-EmmcSwitchToHighSpeed (
-  IN UINTN                          DevBase,
-  IN EFI_SD_MMC_PASS_THRU_PROTOCOL  *PassThru,
-  IN UINT16                         Rca,
-  IN UINT32                         ClockFreq,
-  IN BOOLEAN                        IsDdr,
-  IN UINT8                          BusWidth
-  )
-{
-  EFI_STATUS  Status;
-  UINT8       HsTiming;
-
-  HsTiming = 1;
-  Status   = EmmcSwitchClockFreq (DevBase, PassThru, Rca, HsTiming, ClockFreq);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  Status = EmmcSwitchBusWidth (DevBase, PassThru, Rca, IsDdr, BusWidth);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  return EFI_SUCCESS;
-}
-
-/**
-  Switch to the HS200 timing according to request.
-
-  Refer to EMMC Electrical Standard Spec 5.1 Section 6.6.8.
-
-  @param[in] DevIo          A pointer to the EFI_DEVICE_IO_PROTOCOL instance.
-  @param[in] PassThru       A pointer to the EFI_SD_MMC_PASS_THRU_PROTOCOL
-                            instance.
-  @param[in] Rca            The relative device address to be assigned.
-  @param[in] ClockFreq      The max clock frequency to be set.
-  @param[in] BusWidth       The bus width to be set, it could be 4 or 8.
-
-  @retval EFI_SUCCESS       The operation is done correctly.
-  @retval Others            The operation fails.
-
-**/
-EFI_STATUS
-EmmcSwitchToHS200 (
-  IN UINTN                          DevBase,
-  IN EFI_SD_MMC_PASS_THRU_PROTOCOL  *PassThru,
-  IN UINT16                         Rca,
-  IN UINT32                         ClockFreq,
-  IN UINT8                          BusWidth
-  )
-{
-  return EFI_SUCCESS;
-}
-
-/**
-  Switch the high speed timing according to request.
-
-  Refer to EMMC Electrical Standard Spec 5.1 Section 6.6.8.
-
-  @param[in] DevIo          A pointer to the EFI_DEVICE_IO_PROTOCOL instance.
+  @param[in] DevBase        Controller registers.
   @param[in] PassThru       A pointer to the EFI_SD_MMC_PASS_THRU_PROTOCOL
                             instance.
   @param[in] Rca            The relative device address to be assigned.
@@ -803,14 +691,13 @@ EmmcSetBusMode (
   EFI_STATUS              Status;
   EMMC_CSD                Csd;
   EMMC_EXT_CSD            ExtCsd;
-  UINT8                   HsTiming;
-  BOOLEAN                 IsDdr;
   UINT32                  DevStatus;
   UINT32                  ClockFreq;
   UINT8                   BusWidth;
   DW_MMC_HC_PRIVATE_DATA  *Private;
 
   Private = DW_MMC_HC_PRIVATE_FROM_THIS (PassThru);
+
   ASSERT (Private->Capability[0].BaseClkFreq != 0);
 
   Status = EmmcGetCsd (PassThru, Rca, &Csd);
@@ -825,109 +712,48 @@ EmmcSetBusMode (
     return Status;
   }
 
-  do {
-    Status = EmmcSendStatus (PassThru, Rca, &DevStatus);
-    if (EFI_ERROR (Status)) {
-      DEBUG ((
-        DEBUG_ERROR,
-        "EmmcSetBusMode: Get Status fails with %r\n",
-        Status
-        ));
-      return Status;
-    }
-  } while (EMMC_GET_STATE (DevStatus) != EMMC_STATE_TRAN);
-
-  BusWidth = 1;
-  Status   = EmmcSwitchBusWidth (DevBase, PassThru, Rca, FALSE, BusWidth);
+  Status = EmmcWaitReady (PassThru, Rca, TRUE, &DevStatus);
   if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "EmmcSetBusMode: card does not reach transfer state: %r\n", Status));
     return Status;
   }
 
-  BusWidth = Private->Capability[0].BusWidth;
-  //
-  // Get Deivce_Type from EXT_CSD register.
-  //
   Status = EmmcGetExtCsd (PassThru, &ExtCsd);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "EmmcSetBusMode: GetExtCsd fails with %r\n", Status));
     return Status;
   }
 
-  //
-  // Calculate supported bus speed/bus width/clock frequency.
-  //
-  HsTiming  = 0;
-  IsDdr     = FALSE;
-  ClockFreq = 0;
-  if (((ExtCsd.DeviceType & (BIT4 | BIT5)) != 0) &&
-      (Private->Capability[0].Sdr104 != 0))
-  {
-    HsTiming  = 2;
-    IsDdr     = FALSE;
-    ClockFreq = 200;
-  } else if (((ExtCsd.DeviceType & (BIT2 | BIT3)) != 0) &&
-             (Private->Capability[0].Ddr50 != 0))
-  {
-    HsTiming  = 1;
-    IsDdr     = TRUE;
+  BusWidth = (UINT8)Private->Capability[0].BusWidth;
+
+  if (((ExtCsd.DeviceType & BIT1) != 0) && (Private->Capability[0].HighSpeed != 0)) {
     ClockFreq = 52;
-  } else if (((ExtCsd.DeviceType & BIT1) != 0) &&
-             (Private->Capability[0].HighSpeed != 0))
-  {
-    HsTiming  = 1;
-    IsDdr     = FALSE;
-    ClockFreq = 52;
-  } else if (((ExtCsd.DeviceType & BIT0) != 0) &&
-             (Private->Capability[0].HighSpeed != 0))
-  {
-    HsTiming  = 1;
-    IsDdr     = FALSE;
+  } else if (((ExtCsd.DeviceType & BIT0) != 0) && (Private->Capability[0].HighSpeed != 0)) {
     ClockFreq = 26;
-  }
-
-  if ((ClockFreq == 0) || (HsTiming == 0)) {
-    //
-    // Continue using default setting.
-    //
-    return EFI_SUCCESS;
-  }
-
-  DEBUG ((
-    DEBUG_INFO,
-    "EmmcSetBusMode: HsTiming %d ClockFreq %d BusWidth %d Ddr %a\n",
-    HsTiming,
-    ClockFreq,
-    BusWidth,
-    IsDdr ? "TRUE" : "FALSE"
-    ));
-
-  if (HsTiming == 2) {
-    //
-    // Execute HS200 timing switch procedure
-    //
-    Status = EmmcSwitchToHS200 (DevBase, PassThru, Rca, ClockFreq, BusWidth);
   } else {
-    //
-    // Execute High Speed timing switch procedure
-    //
-    Status = EmmcSwitchToHighSpeed (
-               DevBase,
-               PassThru,
-               Rca,
-               ClockFreq,
-               IsDdr,
-               BusWidth
-               );
+    // Card without high speed: the backward compatible timing allows 20 MHz
+    ClockFreq = 0;
   }
 
   DEBUG ((
     DEBUG_INFO,
-    "EmmcSetBusMode: Switch to %a %r\n",
-    (HsTiming == 3) ? "HS400" : ((HsTiming == 2) ? "HS200" : "HighSpeed"),
-    Status
+    "EmmcSetBusMode: DeviceType 0x%x, %d MHz, %d-bit\n",
+    ExtCsd.DeviceType,
+    ClockFreq != 0 ? ClockFreq : 20,
+    BusWidth
     ));
 
-  return Status;
+  if (ClockFreq != 0) {
+    Status = EmmcSwitchClockFreq (DevBase, PassThru, Rca, 1, ClockFreq);
+  } else {
+    Status = DwMmcHcClockSupply (DevBase, 20000, Private->Capability[0]);
+  }
+
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  return EmmcSwitchBusWidth (DevBase, PassThru, Rca, FALSE, BusWidth);
 }
 
 /**
@@ -967,7 +793,8 @@ EmmcIdentification (
     return Status;
   }
 
-  Timeout = 100;
+  // Up to a second for the card to finish its power up
+  Timeout = 1000;
   do {
     Ocr    = EMMC_CMD1_CAPACITY_GREATER_THAN_2GB;
     Status = EmmcGetOcr (PassThru, &Ocr);
@@ -984,7 +811,7 @@ EmmcIdentification (
       return EFI_DEVICE_ERROR;
     }
 
-    MicroSecondDelay (100);
+    MicroSecondDelay (1000);
   } while ((Ocr & BIT31) == 0);
 
   Status = EmmcGetAllCid (PassThru);
@@ -1030,19 +857,12 @@ EmmcIdentification (
   }
 
   //
-  // Exit DATA Mode.
+  // The card has to be ready for the first data command.
   //
-  do {
-    Status = EmmcSendStatus (PassThru, Rca, &DevStatus);
-    if (EFI_ERROR (Status)) {
-      DEBUG ((
-        DEBUG_INFO,
-        "EmmcSwitchBusWidth: Send status fails with %r\n",
-        Status
-        ));
-      return Status;
-    }
-  } while ((DevStatus & 0xf) == EMMC_STATE_DATA);
+  Status = EmmcWaitReady (PassThru, Rca, TRUE, &DevStatus);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_INFO, "EmmcIdentification: card not in transfer state: %r\n", Status));
+  }
 
   return Status;
 }

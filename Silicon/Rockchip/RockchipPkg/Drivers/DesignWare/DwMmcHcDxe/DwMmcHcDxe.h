@@ -87,6 +87,15 @@ typedef struct {
   UINT64                           MaxCurrent[DW_MMC_HC_MAX_SLOT];
 
   UINT32                           ControllerVersion;
+
+  // Offset of the FIFO data port; it moved in controller version 2.40a
+  UINTN                            FifoOffset;
+
+  // IDMAC descriptor chain, allocated once; NULL means FIFO access only
+  DW_MMC_HC_DMA_DESC_LINE          *IdmacDesc;
+  EFI_PHYSICAL_ADDRESS             IdmacDescPhys;
+  VOID                             *IdmacDescMap;
+  UINTN                            IdmacDescPages;
 } DW_MMC_HC_PRIVATE_DATA;
 
 #define DW_MMC_HC_TRB_SIG  SIGNATURE_32 ('D', 'T', 'R', 'B')
@@ -99,27 +108,20 @@ typedef struct {
   LIST_ENTRY                             TrbList;
 
   UINT8                                  Slot;
-  UINT16                                 BlockSize;
 
   EFI_SD_MMC_PASS_THRU_COMMAND_PACKET    *Packet;
   VOID                                   *Data;
   UINT32                                 DataLen;
   BOOLEAN                                Read;
-  EFI_PHYSICAL_ADDRESS                   DataPhy;
+  EFI_PHYSICAL_ADDRESS                   DataPhy;       // as the IDMAC sees it
   VOID                                   *DataMap;
-  DW_MMC_HC_TRANSFER_MODE                Mode;
 
   EFI_EVENT                              Event;
   BOOLEAN                                Started;
   UINT64                                 Timeout;
 
-  DW_MMC_HC_DMA_DESC_LINE                *DmaDesc;
-  EFI_PHYSICAL_ADDRESS                   DmaDescPhy;
-  UINT32                                 DmaDescPages;
-  VOID                                   *DmaMap;
-
-  BOOLEAN                                UseFifo;
-  BOOLEAN                                UseBE;               // Big-endian
+  BOOLEAN                                UseDma;        // IDMAC, else FIFO by hand
+  EFI_STATUS                             Result;        // set by DwMmcExecTrb
 
   DW_MMC_HC_PRIVATE_DATA                 *Private;
 } DW_MMC_HC_TRB;
@@ -127,22 +129,6 @@ typedef struct {
 #define DW_MMC_HC_TRB_FROM_THIS(a) \
     CR(a, DW_MMC_HC_TRB, TrbList, DW_MMC_HC_TRB_SIG)
 
-//
-// Task for Non-blocking mode.
-//
-typedef struct {
-  UINT32                                 Signature;
-  LIST_ENTRY                             Link;
-
-  UINT8                                  Slot;
-  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET    *Packet;
-  BOOLEAN                                IsStart;
-  EFI_EVENT                              Event;
-  UINT64                                 RetryTimes;
-  BOOLEAN                                InfiniteWait;
-  VOID                                   *Map;
-  VOID                                   *MapAddress;
-} DW_MMC_HC_QUEUE;
 
 //
 // Prototypes
@@ -807,6 +793,51 @@ EmmcIdentification (
 **/
 EFI_STATUS
 SdCardIdentification (
+  IN DW_MMC_HC_PRIVATE_DATA  *Private
+  );
+
+/**
+  Allocate the IDMAC descriptor chain. On failure the controller is used with
+  the FIFO only.
+
+  @param[in] Private        The controller.
+**/
+VOID
+DwMmcHcAllocateDma (
+  IN DW_MMC_HC_PRIVATE_DATA  *Private
+  );
+
+/**
+  Free what DwMmcHcAllocateDma allocated.
+
+  @param[in] Private        The controller.
+**/
+VOID
+DwMmcHcFreeDma (
+  IN DW_MMC_HC_PRIVATE_DATA  *Private
+  );
+
+/**
+  Reset the controller, find out which register layout it has and make it
+  ready for a card. Also resets the IDMAC.
+
+  @param[in] Private        The controller.
+
+  @retval EFI_SUCCESS       Ready.
+  @retval Others            The reset did not finish.
+**/
+EFI_STATUS
+DwMmcHcInitHost (
+  IN DW_MMC_HC_PRIVATE_DATA  *Private
+  );
+
+/**
+  Switch the controller off: stop the card clock and the IDMAC.
+
+  @param[in] Private        The controller.
+**/
+VOID
+DwMmcHcShutdown (
   IN DW_MMC_HC_PRIVATE_DATA  *Private
   );
 

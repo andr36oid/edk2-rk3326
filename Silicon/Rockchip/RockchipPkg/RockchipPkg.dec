@@ -35,6 +35,10 @@
   # Register the eMMC controller even when this boot didn't come from eMMC
   gRockchipPkgTokenSpaceGuid.PcdRkEmmcAlwaysProbe|FALSE|BOOLEAN|0x40000032
 
+  # Move all SD/eMMC data through the controller FIFO by hand instead of the
+  # IDMAC. Slower; for finding out on hardware whether DMA is the problem.
+  gRockchipPkgTokenSpaceGuid.PcdDwMmcForcePio|FALSE|BOOLEAN|0x40000033
+
 [PcdsFeatureFlag.common]
   # DEBUG output drawn on the screen as it is printed
   gRockchipPkgTokenSpaceGuid.PcdRkLogScreen|TRUE|BOOLEAN|0x40000040

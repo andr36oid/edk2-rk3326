@@ -1,5 +1,5 @@
 /** @file
-  This driver is used to manage Designware SD/MMC PCI host controllers.
+  This driver is used to manage Designware SD/MMC host controllers.
 
   It would expose EFI_SD_MMC_PASS_THRU_PROTOCOL for upper layer use.
 
@@ -22,12 +22,28 @@
 
 #include "DwMmcHcDxe.h"
 
-/**
-  Dump the content of SD/MMC host controller's Capability Register.
+// Time to wait for the controller to take a command-register write, us
+#define DW_MMC_CMD_START_TIMEOUT  500000
 
-  @param[in]  Slot            The slot number of the SD card to send the
-                              command to.
-  @param[in]  Capability      The buffer to store the capability data.
+// Time to wait for the card to let go of DAT0 before the next command, us.
+// A write can keep the card busy for 250 ms, an erase much longer.
+#define DW_MMC_CARD_BUSY_TIMEOUT  5000000
+
+// Time to wait for the auto-stop command after a multi-block transfer, us
+#define DW_MMC_AUTO_STOP_TIMEOUT  200000
+
+// Used when the caller gave no timeout: better a late error than a hang
+#define DW_MMC_DEFAULT_TIMEOUT  (10 * 1000 * 1000)
+
+#define DW_MMC_CMD_ERR_MASK  (DW_MMC_INT_RTO | DW_MMC_INT_RCRC | DW_MMC_INT_RE | DW_MMC_INT_HLE)
+#define DW_MMC_DATA_ERR_MASK  (DW_MMC_INT_DCRC | DW_MMC_INT_DRT | DW_MMC_INT_HTO | \
+                               DW_MMC_INT_FRUN | DW_MMC_INT_SBE | DW_MMC_INT_EBE)
+
+/**
+  Print the slot capabilities the platform driver reported.
+
+  @param[in]  Slot            The slot number.
+  @param[in]  Capability      The capabilities.
 
 **/
 VOID
@@ -36,105 +52,38 @@ DumpCapabilityReg (
   IN DW_MMC_HC_SLOT_CAP  *Capability
   )
 {
-  //
-  // Dump Capability Data
-  //
   DEBUG ((
     DEBUG_INFO,
-    " == Slot [%d] Capability is 0x%x ==\n",
+    "DwMmc slot %d: %a, %a, %d-bit, input clock %d kHz, HS %a, 3.3V %a, 1.8V %a\n",
     Slot,
-    Capability
+    (Capability->SlotType == RemovableSlot) ? "removable" : "embedded",
+    (Capability->CardType == SdCardType) ? "SD" : "eMMC",
+    Capability->BusWidth,
+    Capability->BaseClkFreq,
+    Capability->HighSpeed ? "yes" : "no",
+    Capability->Voltage33 ? "yes" : "no",
+    Capability->Voltage18 ? "yes" : "no"
     ));
-  DEBUG ((
-    DEBUG_INFO,
-    "   Base Clk Freq     %dKHz\n",
-    Capability->BaseClkFreq
-    ));
-  DEBUG ((
-    DEBUG_INFO,
-    "   BusWidth          %d\n",
-    Capability->BusWidth
-    ));
-  DEBUG ((
-    DEBUG_INFO,
-    "   HighSpeed Support %a\n",
-    Capability->HighSpeed ? "TRUE" : "FALSE"
-    ));
-  DEBUG ((
-    DEBUG_INFO,
-    "   Voltage 1.8       %a\n",
-    Capability->Voltage18 ? "TRUE" : "FALSE"
-    ));
-  DEBUG ((
-    DEBUG_INFO,
-    "   64-bit Sys Bus    %a\n",
-    Capability->SysBus64 ? "TRUE" : "FALSE"
-    ));
-  DEBUG ((DEBUG_INFO, "   SlotType          "));
-  if (Capability->SlotType == 0x00) {
-    DEBUG ((DEBUG_INFO, "%a\n", "Removable Slot"));
-  } else if (Capability->SlotType == 0x01) {
-    DEBUG ((DEBUG_INFO, "%a\n", "Embedded Slot"));
-  } else if (Capability->SlotType == 0x02) {
-    DEBUG ((DEBUG_INFO, "%a\n", "Shared Bus Slot"));
-  } else {
-    DEBUG ((DEBUG_INFO, "%a\n", "Reserved"));
-  }
-
-  DEBUG ((
-    DEBUG_INFO,
-    "   SDR50  Support    %a\n",
-    Capability->Sdr50 ? "TRUE" : "FALSE"
-    ));
-  DEBUG ((
-    DEBUG_INFO,
-    "   SDR104 Support    %a\n",
-    Capability->Sdr104 ? "TRUE" : "FALSE"
-    ));
-  DEBUG ((
-    DEBUG_INFO,
-    "   DDR50  Support    %a\n",
-    Capability->Ddr50 ? "TRUE" : "FALSE"
-    ));
-  return;
 }
 
 /**
-  Set all interrupt status bits in Normal and Error Interrupt Status Enable
-  register.
+  Mask the controller interrupts and clear what is pending. The driver polls
+  RINTSTS and IDSTS, which show the events whether they are masked or not.
 
-  @param[in] DevIo          The DEVICE IO protocol instance.
+  @param[in] DevBase        Controller registers.
 
-  @retval EFI_SUCCESS       The operation executes successfully.
-  @retval Others            The operation fails.
+  @retval EFI_SUCCESS       Done.
 
 **/
 EFI_STATUS
 DwMmcHcEnableInterrupt (
-  UINTN  DevBase
+  IN UINTN  DevBase
   )
 {
-  UINT32  IntStatus;
-  UINT32  IdIntEn;
-  UINT32  IdSts;
-
-  //
-  // Enable all bits in Interrupt Mask Register
-  //
-  IntStatus = 0;
-  MmioWrite32 (DevBase + DW_MMC_INTMASK, IntStatus);
-
-  //
-  // Clear status in Interrupt Status Register
-  //
-  IntStatus = ~0;
-  MmioWrite32 (DevBase + DW_MMC_RINTSTS, IntStatus);
-
-  IdIntEn = ~0;
-  MmioWrite32 (DevBase + DW_MMC_IDINTEN, IdIntEn);
-
-  IdSts = ~0;
-  MmioWrite32 (DevBase + DW_MMC_IDSTS, IdSts);
+  MmioWrite32 (DevBase + DW_MMC_INTMASK, 0);
+  MmioWrite32 (DevBase + DW_MMC_RINTSTS, ~0U);
+  MmioWrite32 (DevBase + DW_MMC_IDINTEN, ~0U);
+  MmioWrite32 (DevBase + DW_MMC_IDSTS, ~0U);
 
   return EFI_SUCCESS;
 }
@@ -163,26 +112,9 @@ DwMmcHcGetCapability (
     return Status;
   }
 
-  Status = PlatformDwMmc->GetCapability (Controller, Slot, Capacity);
-  return Status;
+  return PlatformDwMmc->GetCapability (Controller, Slot, Capacity);
 }
 
-/**
-  Detect whether there is a SD/MMC card attached at the specified SD/MMC host
-  controller slot.
-
-  Refer to SD Host Controller Simplified spec 3.0 Section 3.1 for details.
-
-  @param[in]  DevIo         The DEVICE IO protocol instance.
-  @param[in]  Slot          The slot number of the SD card to send the command
-                            to.
-  @param[out] MediaPresent  The pointer to the media present boolean value.
-
-  @retval EFI_SUCCESS       There is no media change happened.
-  @retval EFI_MEDIA_CHANGED There is media change happened.
-  @retval Others            The detection fails.
-
-**/
 EFI_STATUS
 DwMmcHcCardDetect (
   IN     UINTN       DevBase,
@@ -211,47 +143,87 @@ DwMmcHcCardDetect (
   return EFI_SUCCESS;
 }
 
+/**
+  Wait for DAT0 to be released by the card.
+
+  @param[in] DevBase        Controller registers.
+  @param[in] TimeoutUs      How long to wait.
+
+  @retval EFI_SUCCESS       The card is not busy.
+  @retval EFI_TIMEOUT       Still busy.
+
+**/
+STATIC
+EFI_STATUS
+DwMmcHcWaitCardIdle (
+  IN UINTN   DevBase,
+  IN UINT32  TimeoutUs
+  )
+{
+  UINT32  Waited;
+
+  for (Waited = 0; Waited < TimeoutUs; Waited += 10) {
+    if ((MmioRead32 (DevBase + DW_MMC_STATUS) & DW_MMC_STS_DATA_BUSY) == 0) {
+      return EFI_SUCCESS;
+    }
+
+    MicroSecondDelay (10);
+  }
+
+  return EFI_TIMEOUT;
+}
+
+/**
+  Make the controller take over the clock settings (CLKDIV, CLKSRC, CLKENA).
+  The databook asks for this after every change; it is a command that goes
+  to the card's clock domain only, nothing is sent to the card.
+
+  @param[in] DevBase        Controller registers.
+
+  @retval EFI_SUCCESS       Taken over.
+  @retval EFI_DEVICE_ERROR  Hardware lock error, the controller was busy.
+  @retval EFI_TIMEOUT       The start bit did not clear.
+
+**/
 STATIC
 EFI_STATUS
 DwMmcHcUpdateClock (
   IN UINTN  DevBase
   )
 {
-  UINT32  Cmd;
-  UINT32  IntStatus;
+  UINT32  Waited;
 
-  Cmd = BIT_CMD_WAIT_PRVDATA_COMPLETE | BIT_CMD_UPDATE_CLOCK_ONLY |
-        BIT_CMD_START;
-  MmioWrite32 (DevBase + DW_MMC_CMD, Cmd);
+  MmioWrite32 (
+    DevBase + DW_MMC_CMD,
+    BIT_CMD_WAIT_PRVDATA_COMPLETE | BIT_CMD_UPDATE_CLOCK_ONLY | BIT_CMD_START
+    );
 
-  while (1) {
-    Cmd = MmioRead32 (DevBase + DW_MMC_CMD);
-
-    if (!(Cmd & CMD_START_BIT)) {
-      break;
+  for (Waited = 0; Waited < DW_MMC_CMD_START_TIMEOUT; Waited++) {
+    if ((MmioRead32 (DevBase + DW_MMC_CMD) & CMD_START_BIT) == 0) {
+      return EFI_SUCCESS;
     }
 
-    IntStatus = MmioRead32 (DevBase + DW_MMC_RINTSTS);
-
-    if (IntStatus & DW_MMC_INT_HLE) {
-      DEBUG ((
-        DEBUG_ERROR,
-        "DwMmcHcUpdateClock: failed to update mmc clock frequency\n"
-        ));
+    if ((MmioRead32 (DevBase + DW_MMC_RINTSTS) & DW_MMC_INT_HLE) != 0) {
+      // HLE stays set until cleared: leaving it would fail every later try
+      MmioWrite32 (DevBase + DW_MMC_RINTSTS, DW_MMC_INT_HLE);
+      DEBUG ((DEBUG_ERROR, "DwMmcHcUpdateClock: hardware lock error\n"));
       return EFI_DEVICE_ERROR;
     }
+
+    MicroSecondDelay (1);
   }
 
-  return EFI_SUCCESS;
+  DEBUG ((DEBUG_ERROR, "DwMmcHcUpdateClock: timed out\n"));
+  return EFI_TIMEOUT;
 }
 
 /**
-  Stop SD/MMC card clock.
+  Stop the card clock.
 
-  @param[in] DevIo          The DEVICE IO protocol instance.
+  @param[in] DevBase        Controller registers.
 
-  @retval EFI_SUCCESS       Succeed to stop SD/MMC clock.
-  @retval Others            Fail to stop SD/MMC clock.
+  @retval EFI_SUCCESS       Stopped.
+  @retval Others            The clock update failed.
 
 **/
 EFI_STATUS
@@ -259,32 +231,21 @@ DwMmcHcStopClock (
   IN UINTN  DevBase
   )
 {
-  EFI_STATUS  Status;
-  UINT32      ClkEna;
-
-  //
-  // Disable MMC clock first
-  //
-  ClkEna = 0;
-  MmioWrite32 (DevBase + DW_MMC_CLKENA, ClkEna);
-
-  Status = DwMmcHcUpdateClock (DevBase);
-  if (EFI_ERROR (Status)) {
-    return Status;
-  }
-
-  return Status;
+  MmioWrite32 (DevBase + DW_MMC_CLKENA, 0);
+  return DwMmcHcUpdateClock (DevBase);
 }
 
 /**
-  SD/MMC card clock supply.
+  Set the card clock and turn it on. The order is the one in the databook
+  and the kernel driver: clock off, new divider, clock on, each followed by
+  a clock update.
 
-  @param[in] DevIo          The DEVICE IO protocol instance.
-  @param[in] ClockFreq      The max clock frequency to be set. The unit is KHz.
-  @param[in] Capability     The capability of the slot.
+  @param[in] DevBase        Controller registers.
+  @param[in] ClockFreq      Highest clock wanted, in kHz.
+  @param[in] Capability     The slot capability (carries the input clock).
 
-  @retval EFI_SUCCESS       The clock is supplied successfully.
-  @retval Others            The clock isn't supplied successfully.
+  @retval EFI_SUCCESS       The clock runs at or below ClockFreq.
+  @retval Others            The controller did not take the change.
 
 **/
 EFI_STATUS
@@ -295,97 +256,69 @@ DwMmcHcClockSupply (
   )
 {
   EFI_STATUS  Status;
-  UINT32      BaseClkFreq;
-  UINT32      SettingFreq;
   UINT32      Divisor;
-  UINT32      Remainder;
-  UINT32      MmcStatus;
-  UINT32      ClkEna;
-  UINT32      ClkSrc;
+  UINT32      Actual;
+  UINT32      Try;
 
-  //
-  // Calculate a divisor for SD clock frequency
-  //
-  ASSERT (Capability.BaseClkFreq != 0);
-
-  BaseClkFreq = Capability.BaseClkFreq;
-  if (ClockFreq == 0) {
+  if ((ClockFreq == 0) || (Capability.BaseClkFreq == 0)) {
     return EFI_INVALID_PARAMETER;
   }
 
-  if (ClockFreq > BaseClkFreq) {
-    ClockFreq = BaseClkFreq;
-  }
-
-  //
-  // Calculate the divisor of base frequency.
-  //
-  Divisor     = 0;
-  SettingFreq = BaseClkFreq;
-  while (ClockFreq < SettingFreq) {
-    Divisor++;
-
-    SettingFreq = BaseClkFreq / (2 * Divisor);
-    Remainder   = BaseClkFreq % (2 * Divisor);
-    if ((ClockFreq == SettingFreq) && (Remainder == 0)) {
-      break;
-    }
-
-    if ((ClockFreq == SettingFreq) && (Remainder != 0)) {
-      SettingFreq++;
-    }
-  }
+  Divisor = DwMmcCalcClockDiv (
+              Capability.BaseClkFreq,
+              (ClockFreq > Capability.BaseClkFreq) ? Capability.BaseClkFreq : (UINT32)ClockFreq,
+              &Actual
+              );
 
   DEBUG ((
     DEBUG_INFO,
-    "BaseClkFreq %dKHz Divisor %d ClockFreq %dKhz\n",
-    BaseClkFreq,
+    "DwMmc clock: input %d kHz, divider %d, card clock %d kHz (wanted %ld)\n",
+    Capability.BaseClkFreq,
     Divisor,
+    Actual,
     ClockFreq
     ));
 
-  //
-  // Wait until MMC is idle
-  //
-  do {
-    MmcStatus = MmioRead32 (DevBase + DW_MMC_STATUS);
-  } while (MmcStatus & DW_MMC_STS_DATA_BUSY);
+  Status = DwMmcHcWaitCardIdle (DevBase, DW_MMC_CARD_BUSY_TIMEOUT);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "DwMmcHcClockSupply: card stays busy\n"));
+    return Status;
+  }
 
-  do {
-    Status = DwMmcHcStopClock (DevBase);
-  } while (EFI_ERROR (Status));
-
-  do {
-    ClkSrc = 0;
-    MmioWrite32 (DevBase + DW_MMC_CLKSRC, ClkSrc);
-    //
-    // Set clock divisor
-    //
-    MmioWrite32 (DevBase + DW_MMC_CLKDIV, Divisor);
-    //
-    // Enable MMC clock
-    //
-    ClkEna = 1;
-    MmioWrite32 (DevBase + DW_MMC_CLKENA, ClkEna);
-
+  Status = EFI_DEVICE_ERROR;
+  for (Try = 0; Try < 3; Try++) {
+    MmioWrite32 (DevBase + DW_MMC_CLKENA, 0);
     Status = DwMmcHcUpdateClock (DevBase);
-  } while (EFI_ERROR (Status));
+    if (EFI_ERROR (Status)) {
+      continue;
+    }
 
-  return EFI_SUCCESS;
+    MmioWrite32 (DevBase + DW_MMC_CLKSRC, 0);
+    MmioWrite32 (DevBase + DW_MMC_CLKDIV, Divisor);
+    Status = DwMmcHcUpdateClock (DevBase);
+    if (EFI_ERROR (Status)) {
+      continue;
+    }
+
+    MmioWrite32 (DevBase + DW_MMC_CLKENA, 1);
+    Status = DwMmcHcUpdateClock (DevBase);
+    if (!EFI_ERROR (Status)) {
+      break;
+    }
+  }
+
+  return Status;
 }
 
 /**
-  Set the SD/MMC bus width.
+  Set the data bus width and single or double data rate.
 
-  Refer to SD Host Controller Simplified spec 3.0 Section 3.4 for details.
+  @param[in] DevBase        Controller registers.
+  @param[in] IsDdr          Dual data rate.
+  @param[in] BusWidth       1, 4 or 8.
 
-  @param[in] DevIo          The DEVICE IO protocol instance.
-  @param[in] IsDdr          A boolean to indicate it's dual data rate or not.
-  @param[in] BusWidth       The bus width used by the SD/MMC device, it must be
-                            1, 4 or 8.
-
-  @retval EFI_SUCCESS       The bus width is set successfully.
-  @retval Others            The bus width isn't set successfully.
+  @retval EFI_SUCCESS       Done.
+  @retval EFI_INVALID_PARAMETER  Not a width the controller has.
 
 **/
 EFI_STATUS
@@ -415,11 +348,10 @@ DwMmcHcSetBusWidth (
   MmioWrite32 (DevBase + DW_MMC_CTYPE, Ctype);
 
   Uhs = MmioRead32 (DevBase + DW_MMC_UHSREG);
-
   if (IsDdr) {
     Uhs |= UHS_DDR_MODE;
   } else {
-    Uhs &= ~(UHS_DDR_MODE);
+    Uhs &= ~UHS_DDR_MODE;
   }
 
   MmioWrite32 (DevBase + DW_MMC_UHSREG, Uhs);
@@ -428,13 +360,13 @@ DwMmcHcSetBusWidth (
 }
 
 /**
-  Supply SD/MMC card with lowest clock frequency at initialization.
+  Supply the card with the identification clock.
 
-  @param[in] DevIo          The DEVICE IO protocol instance.
-  @param[in] Capability     The capability of the slot.
+  @param[in] DevBase        Controller registers.
+  @param[in] Capability     The slot capability.
 
-  @retval EFI_SUCCESS       The clock is supplied successfully.
-  @retval Others            The clock isn't supplied successfully.
+  @retval EFI_SUCCESS       Running at 400 kHz or just below.
+  @retval Others            The clock did not start.
 
 **/
 EFI_STATUS
@@ -444,31 +376,32 @@ DwMmcHcInitClockFreq (
   )
 {
   EFI_STATUS  Status;
-  UINT32      InitFreq;
 
-  //
-  // Calculate a divisor for SD clock frequency
-  //
   if (Capability.BaseClkFreq == 0) {
-    //
-    // Don't support get Base Clock Frequency information via another method
-    //
     return EFI_UNSUPPORTED;
   }
 
-  //
-  // Supply 400KHz clock frequency at initialization phase.
-  //
-  InitFreq = DWMMC_INIT_CLOCK_FREQ;
-  Status   = DwMmcHcClockSupply (DevBase, InitFreq, Capability);
+  Status = DwMmcHcClockSupply (DevBase, DWMMC_INIT_CLOCK_FREQ, Capability);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  MicroSecondDelay (100);
-  return Status;
+  // The card wants 74 clocks before the first command; 100 us is 40 at 400 kHz
+  // and the init flag on CMD0 adds 80 more.
+  MicroSecondDelay (200);
+  return EFI_SUCCESS;
 }
 
+/**
+  Reset parts of the controller and wait for the reset bits to clear.
+
+  @param[in] DevBase        Controller registers.
+  @param[in] ResetValue     DW_MMC_CTRL_* reset bits.
+
+  @retval EFI_SUCCESS       Done.
+  @retval EFI_TIMEOUT       A reset bit did not clear.
+
+**/
 STATIC
 EFI_STATUS
 DwMmcHcWaitReset (
@@ -477,67 +410,26 @@ DwMmcHcWaitReset (
   )
 {
   UINT32  Timeout;
-  UINT32  Data;
 
-  MmioWrite32 (DevBase + DW_MMC_CTRL, ResetValue);
+  MmioWrite32 (DevBase + DW_MMC_CTRL, MmioRead32 (DevBase + DW_MMC_CTRL) | ResetValue);
 
-  Timeout = DW_MMC_HC_GENERIC_TIMEOUT;
-  while (Timeout--) {
-    Data = MmioRead32 (DevBase + DW_MMC_CTRL);
-    if ((Data & DW_MMC_CTRL_RESET_ALL) == 0) {
+  for (Timeout = 0; Timeout < DW_MMC_HC_GENERIC_TIMEOUT; Timeout++) {
+    if ((MmioRead32 (DevBase + DW_MMC_CTRL) & ResetValue) == 0) {
       return EFI_SUCCESS;
     }
 
-    gBS->Stall (1);
+    MicroSecondDelay (1);
   }
 
   return EFI_TIMEOUT;
 }
 
 /**
-  Supply SD/MMC card with maximum voltage at initialization.
+  Program the response and data timeouts and the card detect debounce.
 
-  @param[in] DevIo          The DEVICE IO protocol instance.
-  @param[in] Capability     The capability of the slot.
+  @param[in] DevBase        Controller registers.
 
-  @retval EFI_SUCCESS       The voltage is supplied successfully.
-  @retval Others            The voltage isn't supplied successfully.
-
-**/
-EFI_STATUS
-DwMmcHcInitPowerVoltage (
-  IN UINTN               DevBase,
-  IN DW_MMC_HC_SLOT_CAP  Capability
-  )
-{
-  EFI_STATUS  Status;
-
-  MmioWrite32 (DevBase + DW_MMC_PWREN, 0x1);
-
-  Status = DwMmcHcWaitReset (DevBase, DW_MMC_CTRL_RESET_ALL);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((
-      DEBUG_ERROR,
-      "DwMmcHcInitPowerVoltage: reset failed due to timeout"
-      ));
-    return Status;
-  }
-
-  MmioWrite32 (DevBase + DW_MMC_CTRL, DW_MMC_CTRL_INT_EN);
-
-  return EFI_SUCCESS;
-}
-
-/**
-  Initialize the Timeout Control register with most conservative value at
-  initialization.
-
-  @param[in] DevIo          The DEVICE IO protocol instance.
-
-  @retval EFI_SUCCESS       The timeout control register is configured
-                            successfully.
-  @retval Others            The timeout control register isn't configured
-                            successfully.
+  @retval EFI_SUCCESS       Done.
 
 **/
 EFI_STATUS
@@ -545,433 +437,483 @@ DwMmcHcInitTimeoutCtrl (
   IN UINTN  DevBase
   )
 {
-  UINT32  Data;
-
-  Data = ~0;
-  MmioWrite32 (DevBase + DW_MMC_TMOUT, Data);
-
-  Data = 0x00FFFFFF;
-  MmioWrite32 (DevBase + DW_MMC_DEBNCE, Data);
+  // Data timeout 0xFFFFFF card clocks (as long as it goes), response 0xFF
+  MmioWrite32 (DevBase + DW_MMC_TMOUT, ~0U);
+  MmioWrite32 (DevBase + DW_MMC_DEBNCE, 0x00FFFFFF);
 
   return EFI_SUCCESS;
 }
 
 /**
-  Initial SD/MMC host controller with lowest clock frequency, max power and
-  max timeout value at initialization.
+  Reset the controller, find out which register layout it has and make it
+  ready for a card. Also resets the IDMAC and points it at the descriptors.
 
-  @param[in] DevIo          The DEVICE IO protocol instance.
-  @param[in] Slot           The slot number of the SD card to send the command
-                            to.
-  @param[in] Capability     The capability of the slot.
+  @param[in] Private        The controller.
 
-  @retval EFI_SUCCESS       The host controller is initialized successfully.
-  @retval Others            The host controller isn't initialized successfully.
+  @retval EFI_SUCCESS       Ready.
+  @retval Others            The reset did not finish.
 
 **/
 EFI_STATUS
 DwMmcHcInitHost (
-  IN UINTN               DevBase,
-  IN DW_MMC_HC_SLOT_CAP  Capability
+  IN DW_MMC_HC_PRIVATE_DATA  *Private
   )
 {
   EFI_STATUS  Status;
+  UINTN       DevBase;
+  UINT32      Hcon;
+  UINT32      Bmod;
+  UINT32      Timeout;
 
-  Status = DwMmcHcInitPowerVoltage (DevBase, Capability);
+  DevBase = Private->DevBase;
+
+  MmioWrite32 (DevBase + DW_MMC_PWREN, 1);
+
+  Status = DwMmcHcWaitReset (DevBase, DW_MMC_CTRL_RESET_ALL);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "DwMmcHcInitHost: reset timed out\n"));
+    return Status;
+  }
+
+  // The reset does not bring the card clock domain back by itself
+  Status = DwMmcHcUpdateClock (DevBase);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
-  return Status;
+  Private->ControllerVersion = MmioRead32 (DevBase + DW_MMC_VERID) & 0xFFFF;
+  Private->FifoOffset        = (Private->ControllerVersion < 0x240A) ?
+                               DW_MMC_FIFO_START_OLD : DW_MMC_FIFO_START_240A;
+  Hcon = MmioRead32 (DevBase + DW_MMC_HCON);
+  DEBUG ((
+    DEBUG_INFO,
+    "DwMmc at 0x%lx: version 0x%04x, HCON 0x%08x (data width %d), FIFO port +0x%x\n",
+    (UINT64)DevBase,
+    Private->ControllerVersion,
+    Hcon,
+    ((Hcon >> 7) & 7) == 1 ? 32 : (((Hcon >> 7) & 7) == 2 ? 64 : 16),
+    (UINT32)Private->FifoOffset
+    ));
+
+  // IDMAC: software reset, then it waits for descriptors
+  Bmod = MmioRead32 (DevBase + DW_MMC_BMOD);
+  MmioWrite32 (DevBase + DW_MMC_BMOD, Bmod | DW_MMC_BMOD_SWR);
+  for (Timeout = 0; Timeout < 1000; Timeout++) {
+    if ((MmioRead32 (DevBase + DW_MMC_BMOD) & DW_MMC_BMOD_SWR) == 0) {
+      break;
+    }
+
+    MicroSecondDelay (1);
+  }
+
+  if (Private->IdmacDesc != NULL) {
+    MmioWrite32 (DevBase + DW_MMC_DBADDR, (UINT32)Private->IdmacDescPhys);
+  }
+
+  // The card clock stays off until the first DwMmcHcClockSupply
+  MmioWrite32 (DevBase + DW_MMC_CLKENA, 0);
+  MmioWrite32 (DevBase + DW_MMC_CLKSRC, 0);
+  MmioWrite32 (DevBase + DW_MMC_CTRL, MmioRead32 (DevBase + DW_MMC_CTRL) | DW_MMC_CTRL_INT_EN);
+
+  return EFI_SUCCESS;
 }
 
+/**
+  Switch the controller off: stop the card clock and the IDMAC.
+
+  @param[in] Private        The controller.
+
+**/
+VOID
+DwMmcHcShutdown (
+  IN DW_MMC_HC_PRIVATE_DATA  *Private
+  )
+{
+  UINTN   DevBase;
+  UINT32  Ctrl;
+
+  DevBase = Private->DevBase;
+
+  Ctrl  = MmioRead32 (DevBase + DW_MMC_CTRL);
+  Ctrl &= ~(DW_MMC_CTRL_IDMAC_EN | DW_MMC_CTRL_DMA_EN);
+  MmioWrite32 (DevBase + DW_MMC_CTRL, Ctrl);
+  MmioWrite32 (DevBase + DW_MMC_BMOD, MmioRead32 (DevBase + DW_MMC_BMOD) & ~(DW_MMC_BMOD_DE | DW_MMC_BMOD_FB));
+  DwMmcHcStopClock (DevBase);
+}
+
+/**
+  Allocate the IDMAC descriptor chain: uncached, so the controller sees what
+  the CPU wrote without cache maintenance. Done once per controller.
+
+  @param[in] Private        The controller.
+
+**/
+VOID
+DwMmcHcAllocateDma (
+  IN DW_MMC_HC_PRIVATE_DATA  *Private
+  )
+{
+  EFI_STATUS  Status;
+  UINTN       Bytes;
+  VOID        *Buffer;
+
+  Private->IdmacDescPages = EFI_SIZE_TO_PAGES (DW_MMC_IDMAC_MAX_DESC * sizeof (DW_MMC_HC_DMA_DESC_LINE));
+  Bytes                   = EFI_PAGES_TO_SIZE (Private->IdmacDescPages);
+
+  Status = DmaAllocateBuffer (EfiBootServicesData, Private->IdmacDescPages, &Buffer);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "DwMmc: no memory for the DMA descriptors (%r), using the FIFO only\n", Status));
+    return;
+  }
+
+  ZeroMem (Buffer, Bytes);
+
+  Status = DmaMap (
+             MapOperationBusMasterCommonBuffer,
+             Buffer,
+             &Bytes,
+             0,
+             0,
+             &Private->IdmacDescPhys,
+             &Private->IdmacDescMap
+             );
+  if (EFI_ERROR (Status) || (Bytes != EFI_PAGES_TO_SIZE (Private->IdmacDescPages)) ||
+      (Private->IdmacDescPhys >= 0x100000000ULL) ||
+      ((Private->IdmacDescPhys + Bytes) > 0x100000000ULL))
+  {
+    DEBUG ((DEBUG_ERROR, "DwMmc: DMA descriptors can't be mapped (%r), using the FIFO only\n", Status));
+    if (!EFI_ERROR (Status)) {
+      DmaUnmap (Private->IdmacDescMap);
+    }
+
+    DmaFreeBuffer (Private->IdmacDescPages, Buffer);
+    Private->IdmacDescMap = NULL;
+    return;
+  }
+
+  Private->IdmacDesc = Buffer;
+}
+
+/**
+  Free what DwMmcHcAllocateDma allocated.
+
+  @param[in] Private        The controller.
+
+**/
+VOID
+DwMmcHcFreeDma (
+  IN DW_MMC_HC_PRIVATE_DATA  *Private
+  )
+{
+  if (Private->IdmacDesc == NULL) {
+    return;
+  }
+
+  DmaUnmap (Private->IdmacDescMap);
+  DmaFreeBuffer (Private->IdmacDescPages, Private->IdmacDesc);
+  Private->IdmacDesc    = NULL;
+  Private->IdmacDescMap = NULL;
+}
+
+/**
+  Point the IDMAC at the descriptors for this transfer and let it go. The
+  controller starts moving data once the command is issued.
+
+  @param[in] Private        The controller.
+  @param[in] Trb            The transfer.
+
+  @retval EFI_SUCCESS       Armed.
+  @retval EFI_BAD_BUFFER_SIZE  The buffer does not fit in the descriptor chain.
+
+**/
+STATIC
 EFI_STATUS
 DwMmcHcStartDma (
   IN DW_MMC_HC_PRIVATE_DATA  *Private,
   IN DW_MMC_HC_TRB           *Trb
   )
 {
-  EFI_STATUS  Status;
-  UINTN       DevBase;
-  UINT32      Ctrl;
-  UINT32      Bmod;
+  UINTN   DevBase;
+  UINT32  Count;
+  UINT32  Ctrl;
+  UINT32  Bmod;
 
-  //  DevIo  = Trb->Private->DevIo;
-  DevBase = Trb->Private->DevBase;
+  DevBase = Private->DevBase;
 
-  //
-  // Reset DMA
-  //
-  Status = DwMmcHcWaitReset (DevBase, DW_MMC_CTRL_DMA_RESET);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "Timed out waiting for CTRL_DMA_RESET"));
-    return Status;
+  Count = DwMmcFillDescriptors (
+            Private->IdmacDesc,
+            DW_MMC_IDMAC_MAX_DESC,
+            (UINT32)Private->IdmacDescPhys,
+            Trb->DataPhy,
+            Trb->DataLen
+            );
+  if (Count == 0) {
+    return EFI_BAD_BUFFER_SIZE;
   }
 
-  Bmod = DW_MMC_IDMAC_SWRESET | MmioRead32 (DevBase + DW_MMC_BMOD);
+  // The descriptors are uncached memory; make sure they are out before the
+  // controller is told to read them.
+  ArmDataSynchronizationBarrier ();
 
-  MmioWrite32 (DevBase + DW_MMC_BMOD, Bmod);
+  MmioWrite32 (DevBase + DW_MMC_IDSTS, ~0U);
+  MmioWrite32 (DevBase + DW_MMC_DBADDR, (UINT32)Private->IdmacDescPhys);
 
-  //
-  // Select IDMAC
-  //
-  Ctrl  = DW_MMC_CTRL_IDMAC_EN;
-  Ctrl |= MmioRead32 (DevBase + DW_MMC_CTRL);
+  // The IDMAC takes the data, and the controller must be told to use DMA
+  Ctrl = MmioRead32 (DevBase + DW_MMC_CTRL);
+  Ctrl |= DW_MMC_CTRL_IDMAC_EN | DW_MMC_CTRL_DMA_EN;
   MmioWrite32 (DevBase + DW_MMC_CTRL, Ctrl);
 
-  //
-  // Enable IDMAC
-  //
-  Bmod  = DW_MMC_IDMAC_ENABLE | DW_MMC_IDMAC_FB;
-  Bmod |= MmioRead32 (DevBase + DW_MMC_BMOD);
-
+  Bmod = MmioRead32 (DevBase + DW_MMC_BMOD);
+  Bmod |= DW_MMC_BMOD_DE | DW_MMC_BMOD_FB;
   MmioWrite32 (DevBase + DW_MMC_BMOD, Bmod);
+
+  // Wake the descriptor fetch
+  MmioWrite32 (DevBase + DW_MMC_PLDMND, 1);
 
   return EFI_SUCCESS;
 }
 
-EFI_STATUS
+/**
+  Turn the IDMAC off and drop what is left in the FIFO and the DMA engine.
+
+  @param[in] Private        The controller.
+
+**/
+STATIC
+VOID
 DwMmcHcStopDma (
-  IN DW_MMC_HC_PRIVATE_DATA  *Private,
-  IN DW_MMC_HC_TRB           *Trb
+  IN DW_MMC_HC_PRIVATE_DATA  *Private
   )
 {
   UINTN   DevBase;
   UINT32  Ctrl;
   UINT32  Bmod;
 
-  DevBase = Trb->Private->DevBase;
+  DevBase = Private->DevBase;
 
-  //
-  // Disable and reset IDMAC
-  //
   Ctrl  = MmioRead32 (DevBase + DW_MMC_CTRL);
-  Ctrl &= ~DW_MMC_CTRL_IDMAC_EN;
-  Ctrl |= DW_MMC_CTRL_DMA_RESET;
+  Ctrl &= ~(DW_MMC_CTRL_IDMAC_EN | DW_MMC_CTRL_DMA_EN);
   MmioWrite32 (DevBase + DW_MMC_CTRL, Ctrl);
 
-  //
-  // Stop IDMAC
-  //
   Bmod  = MmioRead32 (DevBase + DW_MMC_BMOD);
-  Bmod &= ~(DW_MMC_BMOD_FB | DW_MMC_BMOD_DE);
-  Bmod |= DW_MMC_BMOD_SWR;
+  Bmod &= ~(DW_MMC_BMOD_DE | DW_MMC_BMOD_FB);
   MmioWrite32 (DevBase + DW_MMC_BMOD, Bmod);
 
-  return EFI_SUCCESS;
+  DwMmcHcWaitReset (DevBase, DW_MMC_CTRL_DMA_RESET | DW_MMC_CTRL_FIFO_RESET);
 }
 
 /**
-  Build DMA descriptor table for transfer.
+  Move data between the buffer and the FIFO by hand: for the short transfers
+  (SCR, switch status) and as the fallback when there is no IDMAC.
 
-  @param[in] Trb            The pointer to the DW_MMC_HC_TRB instance.
+  @param[in] Trb            The transfer.
+  @param[in] BudgetUs       How long without progress is too long.
 
-  @retval EFI_SUCCESS       The DMA descriptor table is created successfully.
-  @retval Others            The DMA descriptor table isn't created successfully.
+  @retval EFI_SUCCESS       All data moved and the controller reports data over.
+  @retval EFI_TIMEOUT       Stalled.
+  @retval EFI_DEVICE_ERROR  The controller reported a data error.
 
 **/
+STATIC
 EFI_STATUS
-BuildDmaDescTable (
-  IN DW_MMC_HC_TRB  *Trb
-  )
-{
-  EFI_PHYSICAL_ADDRESS     Data;
-  UINT64                   DataLen;
-  UINT64                   Entries;
-  UINT32                   Index;
-  UINT64                   Remaining;
-  UINTN                    TableSize;
-  UINTN                    DevBase;
-  EFI_STATUS               Status;
-  UINTN                    Bytes;
-  UINTN                    Blocks;
-  DW_MMC_HC_DMA_DESC_LINE  *DmaDesc;
-  UINT32                   DmaDescPhy;
-  UINT32                   Idsts;
-  UINT32                   BytCnt;
-  UINT32                   BlkSize;
-
-  Data    = Trb->DataPhy;
-  DataLen = Trb->DataLen;
-  DevBase = Trb->Private->DevBase;
-  //
-  // Only support 32bit DMA Descriptor Table
-  //
-  if ((Data >= 0x100000000ul) || ((Data + DataLen) > 0x100000000ul)) {
-    return EFI_INVALID_PARAMETER;
-  }
-
-  //
-  // Address field shall be set on 32-bit boundary (Lower 2-bit is always set
-  // to 0) for 32-bit address descriptor table.
-  //
-  if ((Data & (BIT0 | BIT1)) != 0) {
-    DEBUG ((
-      DEBUG_INFO,
-      "The buffer [0x%x] to construct DMA desc is not aligned to 4 bytes!\n",
-      Data
-      ));
-  }
-
-  Entries   = (DataLen + DWMMC_DMA_BUF_SIZE - 1) / DWMMC_DMA_BUF_SIZE;
-  TableSize = Entries * sizeof (DW_MMC_HC_DMA_DESC_LINE);
-  Blocks    = (DataLen + DW_MMC_BLOCK_SIZE - 1) / DW_MMC_BLOCK_SIZE;
-
-  Trb->DmaDescPages = (UINT32)EFI_SIZE_TO_PAGES (Entries * DWMMC_DMA_BUF_SIZE);
-
-  /*  Status = DevIo->AllocateBuffer (
-                      DevIo,
-                      AllocateAnyPages,
-                      EfiBootServicesData,
-                      EFI_SIZE_TO_PAGES (TableSize),
-                      (EFI_PHYSICAL_ADDRESS *)&Trb->DmaDesc
-                      );*/
-  Status = DmaAllocateBuffer (
-             EfiBootServicesData,
-             EFI_SIZE_TO_PAGES (TableSize),
-             (VOID *)&Trb->DmaDesc
-             );
-  if (EFI_ERROR (Status)) {
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  ZeroMem (Trb->DmaDesc, TableSize);
-  Bytes = TableSize;
-
-  Status = DmaMap (
-             MapOperationBusMasterCommonBuffer,
-             (EFI_PHYSICAL_ADDRESS *)Trb->DmaDesc,
-             &Bytes,
-             0,
-             0,
-             &Trb->DmaDescPhy,
-             &Trb->DmaMap
-             );
-
-  /*  Status = DevIo->Map (
-                      DevIo,
-                      EfiBusMasterCommonBuffer,
-                      (EFI_PHYSICAL_ADDRESS *)Trb->DmaDesc,
-                      &Bytes,
-                      &Trb->DmaDescPhy,
-                      &Trb->DmaMap
-                      );*/
-
-  if (EFI_ERROR (Status) || (Bytes != TableSize)) {
-    //
-    // Map error or unable to map the whole RFis buffer into a contiguous
-    // region.
-    //
-
-    /*    DevIo->FreeBuffer (
-                 DevIo,
-                 EFI_SIZE_TO_PAGES (TableSize),
-                 (EFI_PHYSICAL_ADDRESS)Trb->DmaDesc
-                 );*/
-    return EFI_OUT_OF_RESOURCES;
-  }
-
-  if ((UINT64)(UINTN)Trb->DmaDescPhy > 0x100000000ul) {
-    //
-    // The DMA doesn't support 64bit addressing.
-    //
-    DmaUnmap (Trb->DmaMap);
-
-    /*    DevIo->Unmap (
-          DevIo,
-          Trb->DmaMap
-        );*/
-    return EFI_DEVICE_ERROR;
-  }
-
-  if (DataLen < DW_MMC_BLOCK_SIZE) {
-    BlkSize   = DataLen;
-    BytCnt    = DataLen;
-    Remaining = DataLen;
-  } else {
-    BlkSize   = DW_MMC_BLOCK_SIZE;
-    BytCnt    = DW_MMC_BLOCK_SIZE * Blocks;
-    Remaining = DW_MMC_BLOCK_SIZE * Blocks;
-  }
-
-  MmioWrite32 (DevBase + DW_MMC_BLKSIZ, BlkSize);
-  MmioWrite32 (DevBase + DW_MMC_BYTCNT, BytCnt);
-  DmaDesc = Trb->DmaDesc;
-  for (Index = 0; Index < Entries; Index++, DmaDesc++) {
-    DmaDesc->Des0 = DW_MMC_IDMAC_DES0_OWN | DW_MMC_IDMAC_DES0_CH |
-                    DW_MMC_IDMAC_DES0_DIC;
-    DmaDesc->Des1 = DW_MMC_IDMAC_DES1_BS1 (DWMMC_DMA_BUF_SIZE);
-    //
-    // Buffer Address
-    //
-    DmaDesc->Des2 = (UINT32)((UINTN)Trb->DataPhy +
-                             (DWMMC_DMA_BUF_SIZE * Index));
-    //
-    // Next Descriptor Address
-    //
-    DmaDesc->Des3 = (UINT32)((UINTN)Trb->DmaDescPhy +
-                             sizeof (DW_MMC_HC_DMA_DESC_LINE) * (Index + 1));
-    Remaining = Remaining - DWMMC_DMA_BUF_SIZE;
-  }
-
-  //
-  // First Descriptor
-  //
-  Trb->DmaDesc[0].Des0 |= DW_MMC_IDMAC_DES0_FS;
-  //
-  // Last Descriptor
-  //
-  Trb->DmaDesc[Entries - 1].Des0 &= ~(DW_MMC_IDMAC_DES0_CH |
-                                      DW_MMC_IDMAC_DES0_DIC);
-  Trb->DmaDesc[Entries - 1].Des0 |= DW_MMC_IDMAC_DES0_OWN |
-                                    DW_MMC_IDMAC_DES0_LD;
-  Trb->DmaDesc[Entries - 1].Des1 = DW_MMC_IDMAC_DES1_BS1 (
-                                     Remaining +
-                                     DWMMC_DMA_BUF_SIZE
-                                     );
-  //
-  // Set the next field of the Last Descriptor
-  //
-  Trb->DmaDesc[Entries - 1].Des3 = 0;
-  DmaDescPhy                     = (UINT32)Trb->DmaDescPhy;
-
-  MmioWrite32 (DevBase + DW_MMC_DBADDR, DmaDescPhy);
-
-  ArmDataSynchronizationBarrier ();
-  ArmInstructionSynchronizationBarrier ();
-  //
-  // Clear interrupts
-  //
-  Idsts = ~0;
-  MmioWrite32 (DevBase + DW_MMC_IDSTS, Idsts);
-
-  return Status;
-}
-
-EFI_STATUS
-TransferFifo (
-  IN DW_MMC_HC_TRB  *Trb
+DwMmcHcTransferFifo (
+  IN DW_MMC_HC_TRB  *Trb,
+  IN UINT32         BudgetUs
   )
 {
   UINTN   DevBase;
-  UINT32  Data;
-  UINT32  Received;
+  UINT32  Total;
+  UINT32  Done;
   UINT32  Count;
-  UINT32  Intsts;
+  UINT32  Index;
   UINT32  Sts;
-  UINT32  FifoCount;
-  UINT32  Index;                       /* count with bytes */
-  UINT32  Ascending;
-  UINT32  Descending;
-  UINT32  Timeout;
+  UINT32  Intsts;
+  UINT32  Word;
+  UINT32  Idle;
+  UINT8   *Buf;
+  UINTN   Fifo;
 
-  DevBase    = Trb->Private->DevBase;
-  Received   = 0;
-  Count      = 0;
-  Index      = 0;
-  Ascending  = 0;
-  Descending = ((Trb->DataLen + 3) & ~3) - 4;
-  Timeout    = DW_MMC_HC_GENERIC_TIMEOUT;
+  DevBase = Trb->Private->DevBase;
+  Fifo    = DevBase + Trb->Private->FifoOffset;
+  Buf     = Trb->Data;
+  Total   = (Trb->DataLen + 3) / 4;
+  Done    = 0;
+  Idle    = 0;
 
-  do {
+  for ( ; ;) {
     Intsts = MmioRead32 (DevBase + DW_MMC_RINTSTS);
-
-    if (!Trb->Read && (Intsts & DW_MMC_INT_TXDR)) {
-      Sts = MmioRead32 (DevBase + DW_MMC_STATUS);
-
-      while (  !(DW_MMC_STS_FIFO_FULL (Sts))
-            && (Received < Trb->DataLen)
-            && (Intsts & DW_MMC_INT_TXDR))
-      {
-        if (Trb->UseBE) {
-          Data       = SwapBytes32 (*(UINT32 *)((UINTN)Trb->Data + Descending));
-          Descending = Descending - 4;
-        } else {
-          Data       = *(UINT32 *)((UINTN)Trb->Data + Ascending);
-          Ascending += 4;
-        }
-
-        Index    += 4;
-        Received += 4;
-
-        MmioWrite32 (DevBase + DW_MMC_FIFO_START, Data);
-
-        Intsts = DW_MMC_INT_TXDR;
-        MmioWrite32 (DevBase + DW_MMC_RINTSTS, Intsts);
-
-        Intsts = MmioRead32 (DevBase + DW_MMC_RINTSTS);
-        Sts    = MmioRead32 (DevBase + DW_MMC_STATUS);
-      }
-
-      Timeout = DW_MMC_HC_GENERIC_TIMEOUT;
-      goto Verify;
-    }
-
-    if (Trb->Read && ((Intsts & DW_MMC_INT_RXDR) ||
-                      (Intsts & DW_MMC_INT_DTO)))
-    {
-      Sts = MmioRead32 (DevBase + DW_MMC_STATUS);
-      //
-      // Convert to bytes
-      //
-      FifoCount = GET_STS_FIFO_COUNT (Sts) << 2;
-      if ((FifoCount == 0) && (Received < Trb->DataLen)) {
-        goto Verify;
-      }
-
-      Index = 0;
-      Count = (MIN (FifoCount, Trb->DataLen) + 3) & ~3;
-      while (Index < Count) {
-        Data = MmioRead32 (DevBase + DW_MMC_FIFO_START);
-
-        if (Trb->UseBE) {
-          *(UINT32 *)((UINTN)Trb->Data + Descending) = SwapBytes32 (Data);
-          Descending                                 = Descending - 4;
-        } else {
-          *(UINT32 *)((UINTN)Trb->Data + Ascending) = Data;
-          Ascending                                += 4;
-        }
-
-        Index    += 4;
-        Received += 4;
-      } /* while */
-
-      Timeout = DW_MMC_HC_GENERIC_TIMEOUT;
-    } /* if */
-
-Verify:
-    if (Intsts & DW_MMC_INT_DATA_ERR) {
+    if ((Intsts & DW_MMC_DATA_ERR_MASK) != 0) {
       DEBUG ((
         DEBUG_ERROR,
-        "%a: Data error. CmdIndex=%d, IntStatus=%p\n",
-        __func__,
-        Trb->Packet->SdMmcCmdBlk->CommandIndex,
-        Intsts
+        "DwMmc FIFO: data error 0x%x after %d of %d words\n",
+        Intsts,
+        Done,
+        Total
         ));
       return EFI_DEVICE_ERROR;
     }
 
-    if (Timeout < DW_MMC_HC_GENERIC_TIMEOUT) {
+    Count = 0;
+    if (Trb->Read) {
+      if ((Intsts & (DW_MMC_INT_RXDR | DW_MMC_INT_DTO)) != 0) {
+        Sts   = MmioRead32 (DevBase + DW_MMC_STATUS);
+        Count = GET_STS_FIFO_COUNT (Sts);
+        if (Count > (Total - Done)) {
+          Count = Total - Done;
+        }
+
+        for (Index = 0; Index < Count; Index++) {
+          Word = MmioRead32 (Fifo);
+          CopyMem (Buf + (Done + Index) * 4, &Word, MIN (4, Trb->DataLen - (Done + Index) * 4));
+        }
+
+        MmioWrite32 (DevBase + DW_MMC_RINTSTS, DW_MMC_INT_RXDR);
+      }
+    } else if (Done < Total) {
+      Sts = MmioRead32 (DevBase + DW_MMC_STATUS);
+      if (!DW_MMC_STS_FIFO_FULL (Sts)) {
+        Count = DW_MMC_FIFO_DEPTH - GET_STS_FIFO_COUNT (Sts);
+        if (Count > (Total - Done)) {
+          Count = Total - Done;
+        }
+
+        for (Index = 0; Index < Count; Index++) {
+          Word = 0;
+          CopyMem (&Word, Buf + (Done + Index) * 4, MIN (4, Trb->DataLen - (Done + Index) * 4));
+          MmioWrite32 (Fifo, Word);
+        }
+
+        MmioWrite32 (DevBase + DW_MMC_RINTSTS, DW_MMC_INT_TXDR);
+      }
+    }
+
+    Done += Count;
+
+    if (Done >= Total) {
+      if ((Intsts & DW_MMC_INT_DTO) != 0) {
+        return EFI_SUCCESS;
+      }
+    } else if ((Intsts & DW_MMC_INT_DTO) != 0) {
+      if (Trb->Read && (Count == 0)) {
+        // Data over, FIFO empty, buffer not full: the card sent less
+        DEBUG ((DEBUG_ERROR, "DwMmc FIFO: short transfer, %d of %d words\n", Done, Total));
+        return EFI_DEVICE_ERROR;
+      }
+    }
+
+    if (Count != 0) {
+      Idle = 0;
+    } else {
+      if (++Idle > BudgetUs) {
+        DEBUG ((
+          DEBUG_ERROR,
+          "DwMmc FIFO: stalled at %d of %d words, RINTSTS 0x%x\n",
+          Done,
+          Total,
+          Intsts
+          ));
+        return EFI_TIMEOUT;
+      }
+
       MicroSecondDelay (1);
     }
-
-    if (--Timeout == 0) {
-      DEBUG ((
-        DEBUG_ERROR,
-        "%a: Timed out. CmdIndex=%d, IntStatus=%p\n",
-        __func__,
-        Trb->Packet->SdMmcCmdBlk->CommandIndex,
-        Intsts
-        ));
-      return EFI_TIMEOUT;
-    }
-  } while ((Received < Trb->DataLen));
-
-  return EFI_SUCCESS;
+  }
 }
 
 /**
-  Create a new TRB for the SD/MMC cmd request.
+  Wait for the IDMAC transfer: the controller says the data is over and the
+  IDMAC says it finished the last descriptor.
+
+  @param[in] Trb            The transfer.
+  @param[in] BudgetUs       Time allowed.
+
+  @retval EFI_SUCCESS       Done.
+  @retval EFI_TIMEOUT       Took too long.
+  @retval EFI_DEVICE_ERROR  Data or DMA error.
+
+**/
+STATIC
+EFI_STATUS
+DwMmcHcWaitDma (
+  IN DW_MMC_HC_TRB  *Trb,
+  IN UINT32         BudgetUs
+  )
+{
+  UINTN   DevBase;
+  UINT32  Waited;
+  UINT32  Intsts;
+  UINT32  Idsts;
+  UINT32  Want;
+
+  DevBase = Trb->Private->DevBase;
+  Want    = Trb->Read ? DW_MMC_IDSTS_RI : DW_MMC_IDSTS_TI;
+
+  for (Waited = 0; Waited < BudgetUs; Waited += 5) {
+    Intsts = MmioRead32 (DevBase + DW_MMC_RINTSTS);
+    Idsts  = MmioRead32 (DevBase + DW_MMC_IDSTS);
+
+    if ((Intsts & DW_MMC_DATA_ERR_MASK) != 0) {
+      DEBUG ((DEBUG_ERROR, "DwMmc DMA: data error, RINTSTS 0x%x IDSTS 0x%x\n", Intsts, Idsts));
+      return EFI_DEVICE_ERROR;
+    }
+
+    if ((Idsts & DW_MMC_IDSTS_FATAL) != 0) {
+      DEBUG ((DEBUG_ERROR, "DwMmc DMA: IDMAC error, RINTSTS 0x%x IDSTS 0x%x\n", Intsts, Idsts));
+      return EFI_DEVICE_ERROR;
+    }
+
+    if (((Intsts & DW_MMC_INT_DTO) != 0) && ((Idsts & Want) != 0)) {
+      return EFI_SUCCESS;
+    }
+
+    MicroSecondDelay (5);
+  }
+
+  DEBUG ((
+    DEBUG_ERROR,
+    "DwMmc DMA: timed out, RINTSTS 0x%x IDSTS 0x%x STATUS 0x%x\n",
+    MmioRead32 (DevBase + DW_MMC_RINTSTS),
+    MmioRead32 (DevBase + DW_MMC_IDSTS),
+    MmioRead32 (DevBase + DW_MMC_STATUS)
+    ));
+  return EFI_TIMEOUT;
+}
+
+/**
+  Send CMD12 by hand to get a card out of a transfer that went wrong.
+  The result does not matter: the card is reinitialised if it stays stuck.
+
+  @param[in] DevBase        Controller registers.
+
+**/
+STATIC
+VOID
+DwMmcHcAbortTransfer (
+  IN UINTN  DevBase
+  )
+{
+  UINT32  Waited;
+
+  MmioWrite32 (DevBase + DW_MMC_RINTSTS, ~0U);
+  MmioWrite32 (DevBase + DW_MMC_CMDARG, 0);
+  MmioWrite32 (
+    DevBase + DW_MMC_CMD,
+    DwMmcBuildCmd (12, SdMmcCommandTypeAc, SdMmcResponseTypeR1b, DwMmcDataNone) | BIT_CMD_START
+    );
+
+  for (Waited = 0; Waited < 100000; Waited++) {
+    if ((MmioRead32 (DevBase + DW_MMC_RINTSTS) & (DW_MMC_INT_CMD_DONE | DW_MMC_CMD_ERR_MASK)) != 0) {
+      break;
+    }
+
+    MicroSecondDelay (1);
+  }
+}
+
+/**
+  Create a new TRB for the SD/MMC cmd request. The data buffer is mapped for
+  DMA here (this is where the cache is cleaned or invalidated, and where a
+  buffer the controller can't reach gets a bounce buffer).
 
   @param[in] Private        A pointer to the DW_MMC_HC_PRIVATE_DATA instance.
   @param[in] Slot           The slot number of the SD card to send the command
@@ -993,11 +935,10 @@ DwMmcCreateTrb (
   IN EFI_EVENT                            Event
   )
 {
-  DW_MMC_HC_TRB          *Trb;
-  EFI_STATUS             Status;
-  EFI_TPL                OldTpl;
-  DMA_MAP_OPERATION      Flag;
-  UINTN                  MapLength;
+  DW_MMC_HC_TRB  *Trb;
+  EFI_STATUS     Status;
+  EFI_TPL        OldTpl;
+  UINTN          MapLength;
 
   Trb = AllocateZeroPool (sizeof (DW_MMC_HC_TRB));
   if (Trb == NULL) {
@@ -1006,7 +947,6 @@ DwMmcCreateTrb (
 
   Trb->Signature = DW_MMC_HC_TRB_SIG;
   Trb->Slot      = Slot;
-  Trb->BlockSize = 0x200;
   Trb->Packet    = Packet;
   Trb->Event     = Event;
   Trb->Started   = FALSE;
@@ -1018,65 +958,50 @@ DwMmcCreateTrb (
     Trb->DataLen = Packet->InTransferLength;
     Trb->Read    = TRUE;
     ZeroMem (Trb->Data, Trb->DataLen);
-  } else if (Packet->OutTransferLength && (Packet->OutDataBuffer != NULL)) {
+  } else if ((Packet->OutTransferLength != 0) && (Packet->OutDataBuffer != NULL)) {
     Trb->Data    = Packet->OutDataBuffer;
     Trb->DataLen = Packet->OutTransferLength;
     Trb->Read    = FALSE;
-  } else if (!Packet->InTransferLength && !Packet->OutTransferLength) {
+  } else if ((Packet->InTransferLength == 0) && (Packet->OutTransferLength == 0)) {
     Trb->Data    = NULL;
     Trb->DataLen = 0;
   } else {
     goto Error;
   }
 
-  if (((Private->Slot[Trb->Slot].CardType == EmmcCardType) &&
-       (Packet->SdMmcCmdBlk->CommandIndex == EMMC_SEND_TUNING_BLOCK)) ||
-      ((Private->Slot[Trb->Slot].CardType == SdCardType) &&
-       (Packet->SdMmcCmdBlk->CommandIndex == SD_SEND_TUNING_BLOCK)))
-  {
-    Trb->Mode = SdMmcPioMode;
-  } else {
-    if (Trb->Read) {
-      Flag = MapOperationBusMasterWrite;
-    } else {
-      Flag = MapOperationBusMasterRead;
-    }
+  // Short transfers and controllers without a descriptor chain use the FIFO
+  Trb->UseDma = (Trb->DataLen >= DW_MMC_DMA_MIN_BYTES) && ((Trb->DataLen & 3) == 0) &&
+                (Private->IdmacDesc != NULL) && !FixedPcdGetBool (PcdDwMmcForcePio);
 
-    if (Private->Slot[Trb->Slot].CardType == SdCardType) {
-      Trb->UseFifo = TRUE;
-    } else {
-      Trb->UseFifo = FALSE;
-      if (Trb->DataLen) {
-        MapLength = Trb->DataLen;
-        Status    = DmaMap (Flag, Trb->Data, &MapLength, 0, 0, &Trb->DataPhy, &Trb->DataMap);
-
-        /*        Status = DevIo->Map (
-                                  DevIo,
-                                  Flag,
-                                  Trb->Data,
-                                  &MapLength,
-                                  &Trb->DataPhy,
-                                  &Trb->DataMap
-                                  );*/
-        if (EFI_ERROR (Status) || (Trb->DataLen != MapLength)) {
-          Status = EFI_BAD_BUFFER_SIZE;
-          goto Error;
-        }
-
-        Status = BuildDmaDescTable (Trb);
-        if (EFI_ERROR (Status)) {
-          DmaUnmap (Trb->DataMap);
-          goto Error;
-        }
-
-        Status = DwMmcHcStartDma (Private, Trb);
-        if (EFI_ERROR (Status)) {
-          DmaUnmap (Trb->DataMap);
-          goto Error;
-        }
+  if (Trb->UseDma) {
+    MapLength = Trb->DataLen;
+    Status    = DmaMap (
+                  Trb->Read ? MapOperationBusMasterWrite : MapOperationBusMasterRead,
+                  Trb->Data,
+                  &MapLength,
+                  0,
+                  0,
+                  &Trb->DataPhy,
+                  &Trb->DataMap
+                  );
+    if (EFI_ERROR (Status) || (Trb->DataLen != MapLength)) {
+      DEBUG ((DEBUG_ERROR, "DwMmc: can't map %d bytes for DMA: %r\n", Trb->DataLen, Status));
+      if (!EFI_ERROR (Status)) {
+        DmaUnmap (Trb->DataMap);
+        Trb->DataMap = NULL;
       }
+
+      goto Error;
     }
-  } /* TuningBlock */
+
+    if (!DwMmcDmaReachable (Trb->DataPhy, Trb->DataLen)) {
+      // Above 4 GiB, not word aligned, or more than one command can move
+      DEBUG ((DEBUG_ERROR, "DwMmc: buffer 0x%lx, %d bytes is out of reach for the IDMAC\n", Trb->DataPhy, Trb->DataLen));
+      DmaUnmap (Trb->DataMap);
+      Trb->DataMap = NULL;
+      goto Error;
+    }
+  }
 
   if (Event != NULL) {
     OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
@@ -1087,11 +1012,13 @@ DwMmcCreateTrb (
   return Trb;
 
 Error:
+  FreePool (Trb);
   return NULL;
 }
 
 /**
-  Free the resource used by the TRB.
+  Free the resource used by the TRB. This is where a bounce buffer is copied
+  back for reads.
 
   @param[in] Trb            The pointer to the DW_MMC_HC_TRB instance.
 
@@ -1101,10 +1028,6 @@ DwMmcFreeTrb (
   IN DW_MMC_HC_TRB  *Trb
   )
 {
-  if (Trb->DmaMap != NULL) {
-    DmaUnmap (Trb->DmaMap);
-  }
-
   if (Trb->DataMap != NULL) {
     DmaUnmap (Trb->DataMap);
   }
@@ -1115,12 +1038,7 @@ DwMmcFreeTrb (
 /**
   Check if the env is ready for execute specified TRB.
 
-  @param[in] Private        A pointer to the DW_MMC_HC_PRIVATE_DATA instance.
-  @param[in] Trb            The pointer to the DW_MMC_HC_TRB instance.
-
-  @retval EFI_SUCCESS       The env is ready for TRB execution.
-  @retval EFI_NOT_READY     The env is not ready for TRB execution.
-  @retval Others            Some erros happen.
+  @retval EFI_SUCCESS       Always: commands are run one at a time.
 
 **/
 EFI_STATUS
@@ -1135,12 +1053,7 @@ DwMmcCheckTrbEnv (
 /**
   Wait for the env to be ready for execute specified TRB.
 
-  @param[in] Private        A pointer to the DW_MMC_HC_PRIVATE_DATA instance.
-  @param[in] Trb            The pointer to the DW_MMC_HC_TRB instance.
-
-  @retval EFI_SUCCESS       The env is ready for TRB execution.
-  @retval EFI_TIMEOUT       The env is not ready for TRB execution in time.
-  @retval Others            Some erros happen.
+  @retval EFI_SUCCESS       Always, see DwMmcCheckTrbEnv.
 
 **/
 EFI_STATUS
@@ -1149,432 +1062,18 @@ DwMmcWaitTrbEnv (
   IN DW_MMC_HC_TRB           *Trb
   )
 {
-  EFI_STATUS                           Status;
-  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET  *Packet;
-  UINT64                               Timeout;
-  BOOLEAN                              InfiniteWait;
-
-  //
-  // Wait Command Complete Interrupt Status bit in Normal Interrupt Status
-  // Register
-  //
-  Packet  = Trb->Packet;
-  Timeout = Packet->Timeout;
-  if (Timeout == 0) {
-    InfiniteWait = TRUE;
-  } else {
-    InfiniteWait = FALSE;
-  }
-
-  while (InfiniteWait || (Timeout > 0)) {
-    //
-    // Check Trb execution result by reading Normal Interrupt Status register.
-    //
-    Status = DwMmcCheckTrbEnv (Private, Trb);
-    if (Status != EFI_NOT_READY) {
-      return Status;
-    }
-
-    //
-    // Stall for 1 microsecond.
-    //
-    gBS->Stall (1);
-
-    Timeout--;
-  }
-
-  return EFI_TIMEOUT;
-}
-
-EFI_STATUS
-DwEmmcExecTrb (
-  IN DW_MMC_HC_PRIVATE_DATA  *Private,
-  IN DW_MMC_HC_TRB           *Trb
-  )
-{
-  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET  *Packet;
-  UINTN                                DevBase;
-  UINT32                               Cmd;
-  UINT32                               MmcStatus;
-  UINT32                               IntStatus;
-  UINT32                               Argument;
-  UINT32                               ErrMask;
-  UINT32                               Timeout;
-
-  Packet  = Trb->Packet;
-  DevBase = Trb->Private->DevBase;
-
-  ArmDataSynchronizationBarrier ();
-  ArmInstructionSynchronizationBarrier ();
-  //
-  // Wait until MMC is idle
-  //
-  do {
-    MmcStatus = MmioRead32 (DevBase + DW_MMC_STATUS);
-  } while (MmcStatus & DW_MMC_STS_DATA_BUSY);
-
-  IntStatus = ~0;
-  MmioWrite32 (DevBase + DW_MMC_RINTSTS, IntStatus);
-  Cmd = CMD_INDEX (Packet->SdMmcCmdBlk->CommandIndex);
-  if ((Packet->SdMmcCmdBlk->CommandType == SdMmcCommandTypeAc) ||
-      (Packet->SdMmcCmdBlk->CommandType == SdMmcCommandTypeAdtc))
-  {
-    switch (Packet->SdMmcCmdBlk->CommandIndex) {
-      case EMMC_SET_RELATIVE_ADDR:
-        Cmd |= BIT_CMD_SEND_INIT;
-        break;
-      case EMMC_SEND_STATUS:
-        Cmd |= BIT_CMD_WAIT_PRVDATA_COMPLETE;
-        break;
-      case EMMC_STOP_TRANSMISSION:
-        Cmd |= BIT_CMD_STOP_ABORT_CMD;
-        break;
-    }
-
-    if (Packet->InTransferLength) {
-      Cmd |= BIT_CMD_WAIT_PRVDATA_COMPLETE | BIT_CMD_DATA_EXPECTED |
-             BIT_CMD_READ;
-    } else if (Packet->OutTransferLength) {
-      Cmd |= BIT_CMD_WAIT_PRVDATA_COMPLETE | BIT_CMD_DATA_EXPECTED |
-             BIT_CMD_WRITE;
-    }
-
-    Cmd |= BIT_CMD_RESPONSE_EXPECT | BIT_CMD_CHECK_RESPONSE_CRC;
-  } else {
-    switch (Packet->SdMmcCmdBlk->CommandIndex) {
-      case EMMC_GO_IDLE_STATE:
-        Cmd |= BIT_CMD_SEND_INIT;
-        break;
-      case EMMC_SEND_OP_COND:
-        Cmd |= BIT_CMD_RESPONSE_EXPECT;
-        break;
-      case EMMC_ALL_SEND_CID:
-        Cmd |= BIT_CMD_RESPONSE_EXPECT | BIT_CMD_LONG_RESPONSE |
-               BIT_CMD_CHECK_RESPONSE_CRC | BIT_CMD_SEND_INIT;
-        break;
-    }
-  }
-
-  switch (Packet->SdMmcCmdBlk->ResponseType) {
-    case SdMmcResponseTypeR2:
-      Cmd |= BIT_CMD_RESPONSE_EXPECT | BIT_CMD_CHECK_RESPONSE_CRC |
-             BIT_CMD_LONG_RESPONSE;
-      break;
-    case SdMmcResponseTypeR3:
-      Cmd |= BIT_CMD_RESPONSE_EXPECT;
-      break;
-  }
-
-  Cmd |= BIT_CMD_USE_HOLD_REG | BIT_CMD_START;
-
-  Argument = Packet->SdMmcCmdBlk->CommandArgument;
-  MmioWrite32 (DevBase + DW_MMC_CMDARG, Argument);
-
-  ArmDataSynchronizationBarrier ();
-  ArmInstructionSynchronizationBarrier ();
-
-  MmioWrite32 (DevBase + DW_MMC_CMD, Cmd);
-  ArmDataSynchronizationBarrier ();
-  ArmInstructionSynchronizationBarrier ();
-
-  ErrMask = DW_MMC_INT_EBE | DW_MMC_INT_HLE | DW_MMC_INT_RTO |
-            DW_MMC_INT_RCRC | DW_MMC_INT_RE;
-  ErrMask |= DW_MMC_INT_DCRC | DW_MMC_INT_DRT | DW_MMC_INT_SBE;
-  do {
-    Timeout = 10000;
-    if (--Timeout == 0) {
-      break;
-    }
-
-    IntStatus = MmioRead32 (DevBase + DW_MMC_RINTSTS);
-    if (IntStatus & ErrMask) {
-      return EFI_DEVICE_ERROR;
-    }
-
-    if (Trb->DataLen && ((IntStatus & DW_MMC_INT_DTO) == 0)) {
-      //
-      // Transfer Not Done
-      //
-      MicroSecondDelay (10);
-      continue;
-    }
-
-    MicroSecondDelay (10);
-  } while (!(IntStatus & DW_MMC_INT_CMD_DONE));
-
-  switch (Packet->SdMmcCmdBlk->ResponseType) {
-    case SdMmcResponseTypeR1:
-    case SdMmcResponseTypeR1b:
-    case SdMmcResponseTypeR3:
-    case SdMmcResponseTypeR4:
-    case SdMmcResponseTypeR5:
-      Packet->SdMmcStatusBlk->Resp0 = MmioRead32 (DevBase + DW_MMC_RESP0);
-      break;
-    case SdMmcResponseTypeR2:
-      Packet->SdMmcStatusBlk->Resp0 = MmioRead32 (DevBase + DW_MMC_RESP0);
-      Packet->SdMmcStatusBlk->Resp1 = MmioRead32 (DevBase + DW_MMC_RESP1);
-      Packet->SdMmcStatusBlk->Resp2 = MmioRead32 (DevBase + DW_MMC_RESP2);
-      Packet->SdMmcStatusBlk->Resp3 = MmioRead32 (DevBase + DW_MMC_RESP3);
-      break;
-  }
-
-  //
-  // The workaround on EMMC_SEND_CSD is used to be compatible with SDHC.
-  //
-  if (Packet->SdMmcCmdBlk->CommandIndex == EMMC_SEND_CSD) {
-    {
-      UINT32  Buf[4];
-      ZeroMem (Buf, sizeof (Buf));
-      CopyMem (
-        (UINT8 *)Buf,
-        (UINT8 *)&Packet->SdMmcStatusBlk->Resp0 + 1,
-        sizeof (Buf) - 1
-        );
-      CopyMem (
-        (UINT8 *)&Packet->SdMmcStatusBlk->Resp0,
-        (UINT8 *)Buf,
-        sizeof (Buf) - 1
-        );
-    }
-  }
-
-  return EFI_SUCCESS;
-}
-
-EFI_STATUS
-DwSdExecTrb (
-  IN DW_MMC_HC_PRIVATE_DATA  *Private,
-  IN DW_MMC_HC_TRB           *Trb
-  )
-{
-  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET  *Packet;
-  UINTN                                DevBase;
-  UINT32                               Cmd;
-  UINT32                               MmcStatus;
-  UINT32                               IntStatus;
-  UINT32                               Argument;
-  UINT32                               ErrMask;
-  UINT32                               Timeout;
-  UINT32                               Idsts;
-  UINT32                               BytCnt;
-  UINT32                               BlkSize;
-  EFI_STATUS                           Status;
-
-  Packet  = Trb->Packet;
-  DevBase = Trb->Private->DevBase;
-
-  ArmDataSynchronizationBarrier ();
-  ArmInstructionSynchronizationBarrier ();
-  //
-  // Wait until MMC is idle
-  //
-  do {
-    MmcStatus = MmioRead32 (DevBase + DW_MMC_STATUS);
-  } while (MmcStatus & DW_MMC_STS_DATA_BUSY);
-
-  IntStatus = ~0;
-  MmioWrite32 (DevBase + DW_MMC_RINTSTS, IntStatus);
-  Cmd = CMD_INDEX (Packet->SdMmcCmdBlk->CommandIndex);
-  if ((Packet->SdMmcCmdBlk->CommandType == SdMmcCommandTypeAc) ||
-      (Packet->SdMmcCmdBlk->CommandType == SdMmcCommandTypeAdtc))
-  {
-    switch (Packet->SdMmcCmdBlk->CommandIndex) {
-      case SD_SET_RELATIVE_ADDR:
-        Cmd |= BIT_CMD_SEND_INIT;
-        break;
-      case SD_STOP_TRANSMISSION:
-        Cmd |= BIT_CMD_STOP_ABORT_CMD;
-        break;
-      case SD_SEND_SCR:
-        Trb->UseBE = TRUE;
-        break;
-    }
-
-    if (Packet->InTransferLength) {
-      Cmd |= BIT_CMD_WAIT_PRVDATA_COMPLETE | BIT_CMD_DATA_EXPECTED |
-             BIT_CMD_READ;
-    } else if (Packet->OutTransferLength) {
-      Cmd |= BIT_CMD_WAIT_PRVDATA_COMPLETE | BIT_CMD_DATA_EXPECTED |
-             BIT_CMD_WRITE;
-    }
-
-    Cmd |= BIT_CMD_RESPONSE_EXPECT | BIT_CMD_CHECK_RESPONSE_CRC |
-           BIT_CMD_SEND_AUTO_STOP;
-  } else {
-    switch (Packet->SdMmcCmdBlk->CommandIndex) {
-      case SD_GO_IDLE_STATE:
-        Cmd |= BIT_CMD_SEND_INIT;
-        break;
-    }
-  }
-
-  switch (Packet->SdMmcCmdBlk->ResponseType) {
-    case SdMmcResponseTypeR2:
-      Cmd |= BIT_CMD_RESPONSE_EXPECT | BIT_CMD_CHECK_RESPONSE_CRC |
-             BIT_CMD_LONG_RESPONSE;
-      break;
-    case SdMmcResponseTypeR3:
-      Cmd |= BIT_CMD_RESPONSE_EXPECT;
-      break;
-    case SdMmcResponseTypeR1b:
-    case SdMmcResponseTypeR4:
-    case SdMmcResponseTypeR6:
-    case SdMmcResponseTypeR7:
-      Cmd |= BIT_CMD_RESPONSE_EXPECT | BIT_CMD_CHECK_RESPONSE_CRC;
-      break;
-  }
-
-  Cmd |= BIT_CMD_USE_HOLD_REG | BIT_CMD_START;
-
-  if (Trb->UseFifo == TRUE) {
-    BytCnt = Trb->Read ? Packet->InTransferLength : Packet->OutTransferLength;
-    MmioWrite32 (DevBase + DW_MMC_BYTCNT, BytCnt);
-    if (Trb->Read) {
-      if (Packet->InTransferLength > DW_MMC_BLOCK_SIZE) {
-        BlkSize = DW_MMC_BLOCK_SIZE;
-      } else {
-        BlkSize = Packet->InTransferLength;
-      }
-    } else {
-      if (Packet->OutTransferLength > DW_MMC_BLOCK_SIZE) {
-        BlkSize = DW_MMC_BLOCK_SIZE;
-      } else {
-        BlkSize = Packet->OutTransferLength;
-      }
-    }
-
-    MmioWrite32 (DevBase + DW_MMC_BLKSIZ, BlkSize);
-
-    if (Trb->DataLen) {
-      Status = DwMmcHcWaitReset (DevBase, DW_MMC_CTRL_FIFO_RESET);
-      if (EFI_ERROR (Status)) {
-        DEBUG ((
-          DEBUG_ERROR,
-          "%a: FIFO reset timed out. CmdIndex=%d\n",
-          __func__,
-          Packet->SdMmcCmdBlk->CommandIndex
-          ));
-      }
-    }
-  }
-
-  Argument = Packet->SdMmcCmdBlk->CommandArgument;
-  MmioWrite32 (DevBase + DW_MMC_CMDARG, Argument);
-  ArmDataSynchronizationBarrier ();
-  ArmInstructionSynchronizationBarrier ();
-  MmioWrite32 (DevBase + DW_MMC_CMD, Cmd);
-  ArmDataSynchronizationBarrier ();
-  ArmInstructionSynchronizationBarrier ();
-
-  ErrMask = DW_MMC_INT_EBE | DW_MMC_INT_HLE | DW_MMC_INT_RTO |
-            DW_MMC_INT_RCRC | DW_MMC_INT_RE;
-  ErrMask |= DW_MMC_INT_DRT | DW_MMC_INT_SBE;
-  if (Packet->InTransferLength || Packet->OutTransferLength) {
-    ErrMask |= DW_MMC_INT_DCRC;
-  }
-
-  Timeout = 10000;
-  do {
-    if (--Timeout == 0) {
-      break;
-    }
-
-    IntStatus = MmioRead32 (DevBase + DW_MMC_RINTSTS);
-    MicroSecondDelay (1);
-  } while (!(IntStatus & DW_MMC_INT_CMD_DONE));
-
-  if (IntStatus & ErrMask) {
-    DEBUG ((
-      DEBUG_ERROR,
-      "%a: Command error. CmdIndex=%d, IntStatus=%p\n",
-      __func__,
-      Packet->SdMmcCmdBlk->CommandIndex,
-      IntStatus
-      ));
-    return EFI_DEVICE_ERROR;
-  }
-
-  if (Trb->DataLen) {
-    if (Trb->UseFifo == TRUE) {
-      Status = TransferFifo (Trb);
-      if (EFI_ERROR (Status)) {
-        return Status;
-      }
-    } else {
-      if (Packet->InTransferLength) {
-        do {
-          Idsts = MmioRead32 (DevBase + DW_MMC_IDSTS);
-        } while ((Idsts & DW_MMC_IDSTS_RI) == 0);
-
-        Status = DwMmcHcStopDma (Private, Trb);
-        if (EFI_ERROR (Status)) {
-          return Status;
-        }
-      } else if (Packet->OutTransferLength) {
-        do {
-          Idsts = MmioRead32 (DevBase + DW_MMC_IDSTS);
-        } while ((Idsts & DW_MMC_IDSTS_TI) == 0);
-
-        Status = DwMmcHcStopDma (Private, Trb);
-        if (EFI_ERROR (Status)) {
-          return Status;
-        }
-      } /* Packet->InTransferLength */
-    } /* UseFifo */
-  } /* Trb->DataLen */
-
-  switch (Packet->SdMmcCmdBlk->ResponseType) {
-    case SdMmcResponseTypeR1:
-    case SdMmcResponseTypeR1b:
-    case SdMmcResponseTypeR3:
-    case SdMmcResponseTypeR4:
-    case SdMmcResponseTypeR5:
-    case SdMmcResponseTypeR6:
-    case SdMmcResponseTypeR7:
-      Packet->SdMmcStatusBlk->Resp0 = MmioRead32 (DevBase + DW_MMC_RESP0);
-      break;
-    case SdMmcResponseTypeR2:
-      Packet->SdMmcStatusBlk->Resp0 = MmioRead32 (DevBase + DW_MMC_RESP0);
-      Packet->SdMmcStatusBlk->Resp1 = MmioRead32 (DevBase + DW_MMC_RESP1);
-      Packet->SdMmcStatusBlk->Resp2 = MmioRead32 (DevBase + DW_MMC_RESP2);
-      Packet->SdMmcStatusBlk->Resp3 = MmioRead32 (DevBase + DW_MMC_RESP3);
-      break;
-  }
-
-  //
-  // The workaround on SD_SEND_CSD/CID is used to be compatible with SDHC.
-  //
-  if (  (Packet->SdMmcCmdBlk->CommandIndex == SD_SEND_CSD)
-     || (Packet->SdMmcCmdBlk->CommandIndex == SD_SEND_CID))
-  {
-    {
-      UINT32  Buf[4];
-      ZeroMem (Buf, sizeof (Buf));
-      CopyMem (
-        (UINT8 *)Buf,
-        (UINT8 *)&Packet->SdMmcStatusBlk->Resp0 + 1,
-        sizeof (Buf) - 1
-        );
-      CopyMem (
-        (UINT8 *)&Packet->SdMmcStatusBlk->Resp0,
-        (UINT8 *)Buf,
-        sizeof (Buf) - 1
-        );
-    }
-  }
-
-  return EFI_SUCCESS;
+  return DwMmcCheckTrbEnv (Private, Trb);
 }
 
 /**
-  Execute the specified TRB.
+  Run one command, data included, to the end.
 
   @param[in] Private        A pointer to the DW_MMC_HC_PRIVATE_DATA instance.
   @param[in] Trb            The pointer to the DW_MMC_HC_TRB instance.
 
-  @retval EFI_SUCCESS       The TRB is sent to host controller successfully.
-  @retval Others            Some erros happen when sending this request to the
-                            host controller.
+  @retval EFI_SUCCESS       Command and data done, response stored.
+  @retval EFI_TIMEOUT       The card did not answer, or the data stalled.
+  @retval EFI_DEVICE_ERROR  CRC, protocol or DMA error.
 
 **/
 EFI_STATUS
@@ -1583,30 +1082,204 @@ DwMmcExecTrb (
   IN DW_MMC_HC_TRB           *Trb
   )
 {
-  EFI_STATUS  Status = EFI_SUCCESS;
-  UINT32      Slot;
+  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET  *Packet;
+  EFI_STATUS                           Status;
+  UINTN                                DevBase;
+  UINT32                               Cmd;
+  UINT32                               IntStatus;
+  UINT32                               Waited;
+  UINT32                               BudgetUs;
+  UINT32                               BlkSize;
+  DW_MMC_DATA_DIR                      Dir;
+  BOOLEAN                              AutoStop;
 
-  Slot = Trb->Slot;
-  if (Private->Slot[Slot].CardType == EmmcCardType) {
-    Status = DwEmmcExecTrb (Private, Trb);
-  } else if (Private->Slot[Slot].CardType == SdCardType) {
-    Status = DwSdExecTrb (Private, Trb);
+  Packet     = Trb->Packet;
+  DevBase    = Private->DevBase;
+
+  BudgetUs = (Packet->Timeout != 0) ? (UINT32)MIN (Packet->Timeout, (UINT64)0xFFFFFFF0) : DW_MMC_DEFAULT_TIMEOUT;
+
+  if (Trb->DataLen == 0) {
+    Dir = DwMmcDataNone;
   } else {
-    ASSERT (0);
+    Dir = Trb->Read ? DwMmcDataRead : DwMmcDataWrite;
   }
 
+  Cmd      = DwMmcBuildCmd (Packet->SdMmcCmdBlk->CommandIndex, Packet->SdMmcCmdBlk->CommandType, Packet->SdMmcCmdBlk->ResponseType, Dir);
+  AutoStop = (Cmd & BIT_CMD_SEND_AUTO_STOP) != 0;
+
+  //
+  // The controller takes one command at a time, and (except for a stop)
+  // only when the card is done with the last one.
+  //
+  for (Waited = 0; (MmioRead32 (DevBase + DW_MMC_CMD) & CMD_START_BIT) != 0; Waited++) {
+    if (Waited > DW_MMC_CMD_START_TIMEOUT) {
+      DEBUG ((DEBUG_ERROR, "DwMmc: previous command never finished\n"));
+      return EFI_DEVICE_ERROR;
+    }
+
+    MicroSecondDelay (1);
+  }
+
+  if ((Cmd & BIT_CMD_STOP_ABORT_CMD) == 0) {
+    Status = DwMmcHcWaitCardIdle (DevBase, DW_MMC_CARD_BUSY_TIMEOUT);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "DwMmc: CMD%d: card still busy, STATUS 0x%x\n", Packet->SdMmcCmdBlk->CommandIndex, MmioRead32 (DevBase + DW_MMC_STATUS)));
+      return Status;
+    }
+  }
+
+  MmioWrite32 (DevBase + DW_MMC_RINTSTS, ~0U);
+  MmioWrite32 (DevBase + DW_MMC_IDSTS, ~0U);
+
+  if (Trb->DataLen != 0) {
+    BlkSize = (Trb->DataLen < DW_MMC_BLOCK_SIZE) ? Trb->DataLen : DW_MMC_BLOCK_SIZE;
+    MmioWrite32 (DevBase + DW_MMC_BLKSIZ, BlkSize);
+    MmioWrite32 (DevBase + DW_MMC_BYTCNT, Trb->DataLen);
+    MmioWrite32 (DevBase + DW_MMC_FIFOTH, DwMmcCalcFifoth (BlkSize, Trb->UseDma));
+
+    Status = DwMmcHcWaitReset (DevBase, DW_MMC_CTRL_FIFO_RESET);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "DwMmc: FIFO reset timed out\n"));
+      return Status;
+    }
+
+    if (Trb->UseDma) {
+      Status = DwMmcHcStartDma (Private, Trb);
+      if (EFI_ERROR (Status)) {
+        return Status;
+      }
+    }
+  }
+
+  MmioWrite32 (DevBase + DW_MMC_CMDARG, Packet->SdMmcCmdBlk->CommandArgument);
+  ArmDataSynchronizationBarrier ();
+  MmioWrite32 (DevBase + DW_MMC_CMD, Cmd | BIT_CMD_START);
+
+  //
+  // Command phase
+  //
+  Status = EFI_TIMEOUT;
+  for (Waited = 0; Waited < BudgetUs; Waited++) {
+    IntStatus = MmioRead32 (DevBase + DW_MMC_RINTSTS);
+
+    if ((IntStatus & DW_MMC_INT_RTO) != 0) {
+      Status = EFI_TIMEOUT;
+      break;
+    }
+
+    if ((IntStatus & DW_MMC_CMD_ERR_MASK) != 0) {
+      Status = EFI_DEVICE_ERROR;
+      break;
+    }
+
+    if ((IntStatus & DW_MMC_INT_CMD_DONE) != 0) {
+      Status = EFI_SUCCESS;
+      break;
+    }
+
+    MicroSecondDelay (1);
+  }
+
+  if (EFI_ERROR (Status)) {
+    // Cards that don't answer are the normal case while probing (CMD8, CMD1
+    // on an SD card); anything else is worth a line.
+    DEBUG ((
+      (Status == EFI_TIMEOUT) ? DEBUG_VERBOSE : DEBUG_ERROR,
+      "DwMmc: CMD%d failed: %r, RINTSTS 0x%x\n",
+      Packet->SdMmcCmdBlk->CommandIndex,
+      Status,
+      IntStatus
+      ));
+    if ((IntStatus & DW_MMC_INT_HLE) != 0) {
+      MmioWrite32 (DevBase + DW_MMC_RINTSTS, DW_MMC_INT_HLE);
+    }
+
+    goto Done;
+  }
+
+  //
+  // Response. The CSD and CID registers come without the CRC byte in an SD
+  // host controller; the callers expect that layout, so shift by a byte.
+  //
+  if (Packet->SdMmcCmdBlk->CommandType != SdMmcCommandTypeBc) {
+    Packet->SdMmcStatusBlk->Resp0 = MmioRead32 (DevBase + DW_MMC_RESP0);
+    if (Packet->SdMmcCmdBlk->ResponseType == SdMmcResponseTypeR2) {
+      Packet->SdMmcStatusBlk->Resp1 = MmioRead32 (DevBase + DW_MMC_RESP1);
+      Packet->SdMmcStatusBlk->Resp2 = MmioRead32 (DevBase + DW_MMC_RESP2);
+      Packet->SdMmcStatusBlk->Resp3 = MmioRead32 (DevBase + DW_MMC_RESP3);
+
+      if ((Packet->SdMmcCmdBlk->CommandIndex == SD_SEND_CSD) ||
+          (Packet->SdMmcCmdBlk->CommandIndex == SD_SEND_CID))
+      {
+        UINT32  Buf[4];
+        ZeroMem (Buf, sizeof (Buf));
+        CopyMem ((UINT8 *)Buf, (UINT8 *)&Packet->SdMmcStatusBlk->Resp0 + 1, sizeof (Buf) - 1);
+        CopyMem ((UINT8 *)&Packet->SdMmcStatusBlk->Resp0, (UINT8 *)Buf, sizeof (Buf) - 1);
+      }
+    }
+  }
+
+  //
+  // Data phase
+  //
+  if (Trb->DataLen != 0) {
+    if (Trb->UseDma) {
+      Status = DwMmcHcWaitDma (Trb, BudgetUs);
+    } else {
+      Status = DwMmcHcTransferFifo (Trb, BudgetUs);
+    }
+
+    if (!EFI_ERROR (Status) && AutoStop) {
+      // The controller sends CMD12 itself once the byte count is reached
+      for (Waited = 0; Waited < DW_MMC_AUTO_STOP_TIMEOUT; Waited++) {
+        if ((MmioRead32 (DevBase + DW_MMC_RINTSTS) & DW_MMC_INT_ACD) != 0) {
+          break;
+        }
+
+        MicroSecondDelay (1);
+      }
+
+      if (Waited >= DW_MMC_AUTO_STOP_TIMEOUT) {
+        // Not fatal: the data is in. Reported so a hardware log shows it.
+        DEBUG ((DEBUG_WARN, "DwMmc: auto stop not reported done, RINTSTS 0x%x\n", MmioRead32 (DevBase + DW_MMC_RINTSTS)));
+      }
+    }
+
+    if (EFI_ERROR (Status) && AutoStop) {
+      // An open-ended multi-block transfer is still running in the card
+      DwMmcHcAbortTransfer (DevBase);
+    }
+
+    // SCR comes most significant byte first; SD_SCR is laid out as a 64-bit
+    // little endian number.
+    if (!EFI_ERROR (Status) && (Packet->SdMmcCmdBlk->CommandIndex == SD_SEND_SCR) &&
+        (Packet->SdMmcCmdBlk->CommandType == SdMmcCommandTypeAdtc) && (Trb->DataLen == 8))
+    {
+      UINT8  *Scr = Trb->Data;
+      UINT8  Tmp;
+      UINTN  I;
+      for (I = 0; I < 4; I++) {
+        Tmp         = Scr[I];
+        Scr[I]      = Scr[7 - I];
+        Scr[7 - I]  = Tmp;
+      }
+    }
+  }
+
+Done:
+  if (Trb->DataLen != 0) {
+    DwMmcHcStopDma (Private);
+  }
+
+  Trb->Result = Status;
   return Status;
 }
 
 /**
-  Check the TRB execution result.
+  Check the TRB execution result. DwMmcExecTrb has run the command to the end
+  so there is nothing left to wait for.
 
-  @param[in] Private        A pointer to the DW_MMC_HC_PRIVATE_DATA instance.
-  @param[in] Trb            The pointer to the DW_MMC_HC_TRB instance.
-
-  @retval EFI_SUCCESS       The TRB is executed successfully.
-  @retval EFI_NOT_READY     The TRB is not completed for execution.
-  @retval Others            Some erros happen when executing this request.
+  @retval The result of the command.
 
 **/
 EFI_STATUS
@@ -1615,75 +1288,13 @@ DwMmcCheckTrbResult (
   IN DW_MMC_HC_TRB           *Trb
   )
 {
-  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET  *Packet;
-  UINT32                               Idsts;
-  UINTN                                DevBase;
-  UINT32                               IntStatus;
-
-  DevBase = Private->DevBase;
-  Packet  = Trb->Packet;
-  if (Trb->UseFifo == TRUE) {
-    if (Trb->DataLen) {
-      IntStatus = MmioRead32 (DevBase + DW_MMC_RINTSTS);
-      //
-      // Check Auto CMD12 completion
-      //
-      if (!(IntStatus & DW_MMC_INT_ACD)) {
-        return EFI_NOT_READY;
-      }
-
-      //
-      // Check data trans over
-      //
-      if (!(IntStatus & DW_MMC_INT_DTO)) {
-        return EFI_NOT_READY;
-      }
-
-      //
-      // There will be some errors reported (SBE, HTO, DRT, DCRC, RCRC)
-      // depending on the command sent (read/write, single/multi block).
-      //
-      // Not sure why this happens (do we need to manually stop the command?),
-      // but it does not seem to affect operation in any way.
-      // All data is correctly transferred and the FIFO is empty by the time
-      // we reach this code path.
-      //
-      // Each transfer is validated in TransferFifo(), which would fail on any
-      // of the error states above and more.
-      // Interrupt status is cleared before a new command is issued, no need
-      // to do it here.
-      //
-    }
-
-    return EFI_SUCCESS;
-  }
-
-  if (Packet->InTransferLength) {
-    do {
-      Idsts = MmioRead32 (DevBase + DW_MMC_IDSTS);
-    } while ((Idsts & BIT1) == 0);
-  } else if (Packet->OutTransferLength) {
-    do {
-      Idsts = MmioRead32 (DevBase + DW_MMC_IDSTS);
-    } while ((Idsts & BIT0) == 0);
-  } else {
-    return EFI_SUCCESS;
-  }
-
-  Idsts = ~0;
-  MmioWrite32 (DevBase + DW_MMC_IDSTS, Idsts);
-
-  return EFI_SUCCESS;
+  return Trb->Result;
 }
 
 /**
   Wait for the TRB execution result.
 
-  @param[in] Private        A pointer to the DW_MMC_HC_PRIVATE_DATA instance.
-  @param[in] Trb            The pointer to the DW_MMC_HC_TRB instance.
-
-  @retval EFI_SUCCESS       The TRB is executed successfully.
-  @retval Others            Some erros happen when executing this request.
+  @retval The result of the command.
 
 **/
 EFI_STATUS
@@ -1692,39 +1303,5 @@ DwMmcWaitTrbResult (
   IN DW_MMC_HC_TRB           *Trb
   )
 {
-  EFI_STATUS                           Status;
-  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET  *Packet;
-  UINT64                               Timeout;
-  BOOLEAN                              InfiniteWait;
-
-  Packet = Trb->Packet;
-  //
-  // Wait Command Complete Interrupt Status bit in Normal Interrupt Status
-  // Register
-  //
-  Timeout = Packet->Timeout;
-  if (Timeout == 0) {
-    InfiniteWait = TRUE;
-  } else {
-    InfiniteWait = FALSE;
-  }
-
-  while (InfiniteWait || (Timeout > 0)) {
-    //
-    // Check Trb execution result by reading Normal Interrupt Status register.
-    //
-    Status = DwMmcCheckTrbResult (Private, Trb);
-    if (Status != EFI_NOT_READY) {
-      return Status;
-    }
-
-    //
-    // Stall for 1 microsecond.
-    //
-    gBS->Stall (1);
-
-    Timeout--;
-  }
-
-  return EFI_TIMEOUT;
+  return DwMmcCheckTrbResult (Private, Trb);
 }

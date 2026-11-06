@@ -15,6 +15,9 @@
 
 #include "DwMmcHcDxe.h"
 
+// ACMD41 until the card says it is ready: up to a second, as the spec allows
+#define SD_OP_COND_RETRIES  100
+
 /**
   Send command GO_IDLE_STATE to the device to make it go to Idle State.
 
@@ -101,54 +104,6 @@ SdCardVoltageCheck (
       return EFI_DEVICE_ERROR;
     }
   }
-
-  return Status;
-}
-
-/**
-  Send command SDIO_SEND_OP_COND to the device to see whether it is SDIO device.
-
-  Refer to SDIO Simplified Spec 3 Section 3.2 for details.
-
-  @param[in] PassThru       A pointer to the EFI_SD_MMC_PASS_THRU_PROTOCOL
-                            instance.
-  @param[in] VoltageWindow  The supply voltage window.
-  @param[in] S18R           The boolean to show if it should switch to 1.8v.
-
-  @retval EFI_SUCCESS       The operation is done correctly.
-  @retval Others            The operation fails.
-
-**/
-EFI_STATUS
-SdioSendOpCond (
-  IN EFI_SD_MMC_PASS_THRU_PROTOCOL  *PassThru,
-  IN UINT32                         VoltageWindow,
-  IN BOOLEAN                        S18R
-  )
-{
-  EFI_SD_MMC_COMMAND_BLOCK             SdMmcCmdBlk;
-  EFI_SD_MMC_STATUS_BLOCK              SdMmcStatusBlk;
-  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET  Packet;
-  EFI_STATUS                           Status;
-  UINT32                               Switch;
-
-  ZeroMem (&SdMmcCmdBlk, sizeof (SdMmcCmdBlk));
-  ZeroMem (&SdMmcStatusBlk, sizeof (SdMmcStatusBlk));
-  ZeroMem (&Packet, sizeof (Packet));
-
-  Packet.SdMmcCmdBlk    = &SdMmcCmdBlk;
-  Packet.SdMmcStatusBlk = &SdMmcStatusBlk;
-  Packet.Timeout        = DW_MMC_HC_GENERIC_TIMEOUT;
-
-  SdMmcCmdBlk.CommandIndex = SDIO_SEND_OP_COND;
-  SdMmcCmdBlk.CommandType  = SdMmcCommandTypeBcr;
-  SdMmcCmdBlk.ResponseType = SdMmcResponseTypeR4;
-
-  Switch = S18R ? BIT24 : 0;
-
-  SdMmcCmdBlk.CommandArgument = (VoltageWindow & 0xFFFFFF) | Switch;
-
-  Status = PassThru->PassThru (PassThru, 0, &Packet, NULL);
 
   return Status;
 }
@@ -466,47 +421,6 @@ SdCardSelect (
 }
 
 /**
-  Send command VOLTAGE_SWITCH to the SD device to switch the voltage of the
-  device.
-
-  Refer to SD Physical Layer Simplified Spec 4.1 Section 4.7 for details.
-
-  @param[in]  PassThru      A pointer to the EFI_SD_MMC_PASS_THRU_PROTOCOL
-                            instance.
-
-  @retval EFI_SUCCESS       The operation is done correctly.
-  @retval Others            The operation fails.
-
-**/
-EFI_STATUS
-SdCardVoltageSwitch (
-  IN EFI_SD_MMC_PASS_THRU_PROTOCOL  *PassThru
-  )
-{
-  EFI_SD_MMC_COMMAND_BLOCK             SdMmcCmdBlk;
-  EFI_SD_MMC_STATUS_BLOCK              SdMmcStatusBlk;
-  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET  Packet;
-  EFI_STATUS                           Status;
-
-  ZeroMem (&SdMmcCmdBlk, sizeof (SdMmcCmdBlk));
-  ZeroMem (&SdMmcStatusBlk, sizeof (SdMmcStatusBlk));
-  ZeroMem (&Packet, sizeof (Packet));
-
-  Packet.SdMmcCmdBlk    = &SdMmcCmdBlk;
-  Packet.SdMmcStatusBlk = &SdMmcStatusBlk;
-  Packet.Timeout        = DW_MMC_HC_GENERIC_TIMEOUT;
-
-  SdMmcCmdBlk.CommandIndex    = SD_VOLTAGE_SWITCH;
-  SdMmcCmdBlk.CommandType     = SdMmcCommandTypeAc;
-  SdMmcCmdBlk.ResponseType    = SdMmcResponseTypeR1;
-  SdMmcCmdBlk.CommandArgument = 0;
-
-  Status = PassThru->PassThru (PassThru, 0, &Packet, NULL);
-
-  return Status;
-}
-
-/**
   Send command SET_BUS_WIDTH to the SD device to set the bus width.
 
   Refer to SD Physical Layer Simplified Spec 4.1 Section 4.7 for details.
@@ -681,53 +595,6 @@ SdCardSendStatus (
 }
 
 /**
-  Send command SEND_TUNING_BLOCK to the SD device for HS200 optimal sampling
-  point detection.
-
-  It may be sent up to 40 times until the host finishes the tuning procedure.
-
-  Refer to SD Physical Layer Simplified Spec 4.1 Section 4.7 for details.
-
-  @param[in] PassThru       A pointer to the EFI_SD_MMC_PASS_THRU_PROTOCOL
-                            instance.
-
-  @retval EFI_SUCCESS       The operation is done correctly.
-  @retval Others            The operation fails.
-
-**/
-EFI_STATUS
-SdCardSendTuningBlk (
-  IN EFI_SD_MMC_PASS_THRU_PROTOCOL  *PassThru
-  )
-{
-  EFI_SD_MMC_COMMAND_BLOCK             SdMmcCmdBlk;
-  EFI_SD_MMC_STATUS_BLOCK              SdMmcStatusBlk;
-  EFI_SD_MMC_PASS_THRU_COMMAND_PACKET  Packet;
-  EFI_STATUS                           Status;
-  UINT8                                TuningBlock[64];
-
-  ZeroMem (&SdMmcCmdBlk, sizeof (SdMmcCmdBlk));
-  ZeroMem (&SdMmcStatusBlk, sizeof (SdMmcStatusBlk));
-  ZeroMem (&Packet, sizeof (Packet));
-
-  Packet.SdMmcCmdBlk    = &SdMmcCmdBlk;
-  Packet.SdMmcStatusBlk = &SdMmcStatusBlk;
-  Packet.Timeout        = DW_MMC_HC_GENERIC_TIMEOUT;
-
-  SdMmcCmdBlk.CommandIndex    = SD_SEND_TUNING_BLOCK;
-  SdMmcCmdBlk.CommandType     = SdMmcCommandTypeAdtc;
-  SdMmcCmdBlk.ResponseType    = SdMmcResponseTypeR1;
-  SdMmcCmdBlk.CommandArgument = 0;
-
-  Packet.InDataBuffer     = TuningBlock;
-  Packet.InTransferLength = sizeof (TuningBlock);
-
-  Status = PassThru->PassThru (PassThru, 0, &Packet, NULL);
-
-  return Status;
-}
-
-/**
   Switch the bus width to specified width.
 
   Refer to SD Physical Layer Simplified Spec 4.1 Section 4.7 and
@@ -829,6 +696,9 @@ SdCardSetBusMode (
   BOOLEAN                 IsDdr;
 
   Private = DW_MMC_HC_PRIVATE_FROM_THIS (PassThru);
+
+  // A version 1 card has no CMD6; the table below then picks default speed
+  ZeroMem (SwitchResp, sizeof (SwitchResp));
 
   Capability = &Private->Capability[0];
 
@@ -957,6 +827,7 @@ SdCardIdentification (
   SD_SCR                         Scr;
   SD_CSD                         Csd;
   BOOLEAN                        SdVersion1;
+  UINT32                         Retry;
 
   DevBase    = Private->DevBase;
   PassThru   = &Private->PassThru;
@@ -1035,8 +906,8 @@ SdCardIdentification (
   //    Note here we only support the cards complied with SD physical
   //    layer simplified spec version 2.0 and version 3.0 and above.
   //
-  do {
-    Status = SdCardSendOpCond (PassThru, 0, Ocr, S18r, Xpc, TRUE, &Ocr);
+  for (Retry = 0; Retry < SD_OP_COND_RETRIES; Retry++) {
+    Status = SdCardSendOpCond (PassThru, 0, Ocr, S18r, Xpc, !SdVersion1, &Ocr);
     if (EFI_ERROR (Status)) {
       DEBUG ((
         DEBUG_ERROR,
@@ -1048,7 +919,18 @@ SdCardIdentification (
         ));
       return EFI_DEVICE_ERROR;
     }
-  } while ((Ocr & BIT31) == 0);
+
+    if ((Ocr & BIT31) != 0) {
+      break;
+    }
+
+    MicroSecondDelay (10000);
+  }
+
+  if ((Ocr & BIT31) == 0) {
+    DEBUG ((DEBUG_ERROR, "SdCardIdentification: the card never finished power up\n"));
+    return EFI_TIMEOUT;
+  }
 
   Status = SdCardAllSendCid (PassThru);
   if (EFI_ERROR (Status)) {

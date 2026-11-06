@@ -28,6 +28,8 @@
   DwMmcHcDxe.h
   DwMmcHci.c
   DwMmcHci.h
+  DwMmcMath.h
+  DwMmcRegs.h
   EmmcDevice.c
   SdDevice.c
 
@@ -62,6 +64,9 @@
 
 [Guids]
   gDwMmcHcNonDiscoverableDeviceGuid
+
+[FixedPcd]
+  gRockchipPkgTokenSpaceGuid.PcdDwMmcForcePio
 
 [UserExtensions.TianoCore."ExtraFiles"]
   DwMmcHcDxeExtra.uni
