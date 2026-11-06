@@ -1,0 +1,45 @@
+# UEFI test (andr36oid UEFI firmware, in development). uefi.txt on BOOT with
+# uefi=once starts uefi.bin from BOOT once instead of Android: U-Boot marks it
+# tried first (fatwrite, read back, like the eMMC test), so a UEFI that hangs is
+# followed by a normal start. uefi=always starts it every time. U-Boot passes
+# what it knows about the board on the UEFI's command line (/chosen/bootargs).
+# display=adopt|reinit and screen_dtb=<file on BOOT> are optional test keys
+# for the display driver; once mode keeps them in uefi.txt. The screen DTB goes
+# to 0x01f80000, inside the window the UEFI trusts (0x01f00000-0x02000000).
+# uefi.bin goes to 0x01ffff00: its 0x100-byte shim header sits just below
+# 0x02000000 so booti leaves it in place and the FD lands on its base.
+setenv uefi ""
+setenv display ""
+setenv screen_dtb ""
+if load mmc ${bootpart} 0x0a200000 uefi.txt; then
+    env import -t 0x0a200000 ${filesize}
+fi
+setenv uefi_go no
+if test "${uefi}" = "always"; then setenv uefi_go yes; fi
+if test "${uefi}" = "once"; then
+    setenv uefi tried
+    env export -t 0x0a200000 uefi display screen_dtb
+    if fatwrite mmc ${bootpart} 0x0a200000 uefi.txt ${filesize}; then
+        setenv uefi ""
+        if load mmc ${bootpart} 0x0a200000 uefi.txt; then
+            env import -t 0x0a200000 ${filesize}
+        fi
+        if test "${uefi}" = "tried"; then setenv uefi_go yes; fi
+    fi
+fi
+if test "${uefi_go}" = "yes"; then
+    if load mmc ${bootpart} 0x01ffff00 uefi.bin; then
+        setenv bootargs "andr36oid.hwrev=${hwrev} andr36oid.serialno=${serial#} andr36oid.ram_mb=${ram_mb} andr36oid.bootpart=${bootpart}"
+        if test -n "${display}"; then
+            setenv bootargs "${bootargs} andr36oid.display=${display}"
+        fi
+        if test -n "${screen_dtb}"; then
+            if load mmc ${bootpart} 0x01f80000 ${screen_dtb}; then
+                setenv bootargs "${bootargs} andr36oid.screen_fdt=0x01f80000"
+            fi
+        fi
+        # keep the DTB where it is: the UEFI reserves 0x01f00000-0x02000000 for it
+        setenv fdt_high "0xffffffffffffffff"
+        booti 0x01ffff00 - 0x01f00000
+    fi
+fi
