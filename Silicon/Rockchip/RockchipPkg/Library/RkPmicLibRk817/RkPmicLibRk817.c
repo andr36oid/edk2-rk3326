@@ -8,17 +8,40 @@
   SPDX-License-Identifier: GPL-2.0+
 **/
 
-#include <Uefi.h>
+#include <PiDxe.h>
 #include <Library/BaseLib.h>
 #include <Library/DebugLib.h>
 #include <Library/FdtLib.h>
+#include <Library/HobLib.h>
 #include <Library/TimerLib.h>
 #include <Library/RkI2cLib.h>
 #include <Library/RkPmicLib.h>
+#include <Guid/RkPlatformInfoHob.h>
 #include "Rk817Regs.h"
 
 STATIC BOOLEAN  mReady;
 STATIC BOOLEAN  mPowerKeyPressed;
+
+/**
+  TRUE if U-Boot ran before us (it passed its FDT in x0, see PlatformPeiLib).
+**/
+STATIC
+BOOLEAN
+UBootRanFirst (
+  VOID
+  )
+{
+  EFI_HOB_GUID_TYPE           *Hob;
+  CONST RK_PLATFORM_INFO_HOB  *Info;
+
+  Hob = GetFirstGuidHob (&gRkPlatformInfoHobGuid);
+  if (Hob == NULL) {
+    return FALSE;
+  }
+
+  Info = GET_GUID_HOB_DATA (Hob);
+  return Info->BootloaderFdt != 0;
+}
 
 STATIC
 EFI_STATUS
@@ -104,7 +127,8 @@ RkPmicInit (
   //
   // U-Boot's probe copies the rail enables into the two POWER_EN_SAVE
   // registers before anything is switched; the kernel's reboot handler brings
-  // the same rails back from them.
+  // the same rails back from them. After U-Boot the rails are no longer the
+  // power-on ones (it turned on the display and others), so its copy stays.
   //
   for (I = 0; I < 4; I++) {
     En[I] = 0;
@@ -113,10 +137,14 @@ RkPmicInit (
     }
   }
 
-  Rk817PowerEnSave (En[0], En[1], En[2], En[3], &Save0, &Save1);
-  PmicWrite (RK817_POWER_EN_SAVE0, Save0);
-  PmicWrite (RK817_POWER_EN_SAVE1, Save1);
-  DEBUG ((DEBUG_INFO, "PMIC: POWER_EN %02X %02X %02X %02X, saved 0x%02X 0x%02X\n", En[0], En[1], En[2], En[3], Save0, Save1));
+  if (UBootRanFirst ()) {
+    DEBUG ((DEBUG_INFO, "PMIC: POWER_EN %02X %02X %02X %02X, U-Boot's saved copy kept\n", En[0], En[1], En[2], En[3]));
+  } else {
+    Rk817PowerEnSave (En[0], En[1], En[2], En[3], &Save0, &Save1);
+    PmicWrite (RK817_POWER_EN_SAVE0, Save0);
+    PmicWrite (RK817_POWER_EN_SAVE1, Save1);
+    DEBUG ((DEBUG_INFO, "PMIC: POWER_EN %02X %02X %02X %02X, saved 0x%02X 0x%02X\n", En[0], En[1], En[2], En[3], Save0, Save1));
+  }
 
   //
   // What U-Boot sets at probe (rk817_init_reg): under-voltage protection,
@@ -127,10 +155,16 @@ RkPmicInit (
   PmicUpdate (RK817_GPIO_INT_CFG, 0x02, 0x00);
 
   //
-  // The battery voltage ADC has to run for the fuel gauge registers to be
-  // live. U-Boot's gauge driver does this at probe.
+  // What U-Boot's fuel gauge driver sets at probe (rk817_fg_init): the battery
+  // voltage register shows the latest sample, not an average; no battery
+  // discharge current limit; the gauge on. Plus the battery voltage ADC, which
+  // the kernel turns on with the others. The kernel sets the gauge up again
+  // (average mode) when its driver starts. After U-Boot all of this is
+  // already so.
   //
-  PmicUpdate (RK817_ADC_CONFIG0, RK817_ADC_BAT_EN, RK817_ADC_BAT_EN);
+  PmicUpdate (RK817_GG_CON, RK817_GG_VOL_INSTANT, RK817_GG_VOL_INSTANT);
+  PmicUpdate (RK817_BAT_DISCHRG, RK817_DIS_ILIM_EN, 0);
+  PmicUpdate (RK817_ADC_CONFIG0, RK817_ADC_GG_EN | RK817_ADC_BAT_EN, RK817_ADC_GG_EN | RK817_ADC_BAT_EN);
 
   if (!EFI_ERROR (PmicRead (RK817_ON_SOURCE, &OnSource)) &&
       !EFI_ERROR (PmicRead (RK817_OFF_SOURCE, &OffSource)))

@@ -23,7 +23,10 @@
 #define RK817_ID_VALUE      0x8170
 
 #define RK817_ADC_CONFIG0   0x50
-#define RK817_ADC_BAT_EN    0x08
+#define RK817_ADC_BAT_EN    0x08          // battery voltage ADC
+#define RK817_ADC_GG_EN     0x80          // fuel gauge
+#define RK817_GG_CON        0x56
+#define RK817_GG_VOL_INSTANT 0x02         // BAT_VOL = latest sample, not the average
 #define RK817_BAT_VOL_H     0x78
 #define RK817_BAT_VOL_L     0x79
 #define RK817_VCALIB0_H     0x93
@@ -35,6 +38,8 @@
 #define RK817_BUCK4_CMIN    0xC6
 #define RK817_BOOST_CFG     0xDE
 #define RK817_CHRG_STS      0xEB
+#define RK817_BAT_DISCHRG   0xEC
+#define RK817_DIS_ILIM_EN   0x08          // battery discharge current limit on
 #define RK817_SYS_STS       0xF0
 #define RK817_SYS_STS_PLUG  0x40
 #define RK817_SYS_CFG3      0xF4

@@ -294,10 +294,12 @@ ScanBoard (
     if ((Name != NULL) && (Len > 0)) {
       if (AsciiStrCmp (Name, "vcc_host") == 0) {
         if (ReadGpioProp (Fdt, Node, "gpio", &Board->HostBank, &Board->HostPin, &Low)) {
-          // regulator-fixed: enable-active-high wins over the flags cell
+          // regulator-fixed: only enable-active-high decides, the flags cell
+          // is ignored (the kernel's fixed.c and gpiolib-of quirk); without it
+          // the switch is active low
           EnableHigh = FdtGetProp (Fdt, Node, "enable-active-high", &Len) != NULL;
           Board->HaveHostGpio   = TRUE;
-          Board->HostActiveHigh = EnableHigh || !Low;
+          Board->HostActiveHigh = EnableHigh;
         }
       } else if (AsciiStrCmp (Name, "boost") == 0) {
         Board->BoostNode = Node;

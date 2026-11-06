@@ -18,5 +18,9 @@
   BaseLib
   DebugLib
   FdtLib
+  HobLib
   TimerLib
   RkI2cLib
+
+[Guids]
+  gRkPlatformInfoHobGuid

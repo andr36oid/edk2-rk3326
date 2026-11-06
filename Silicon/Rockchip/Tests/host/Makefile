@@ -32,7 +32,7 @@ TESTS = test_math test_i2c test_cru test_dwmmc test_pmic test_keys dump_keys tes
 all: $(TESTS)
 	@for t in test_math test_i2c test_cru test_dwmmc test_clock test_board test_power; do echo "== $$t"; ./$$t || exit 1; done
 	@for a in 166 514 300 fail; do echo "== test_keys $$a"; ./test_keys $$a || exit 1; done
-	@for m in --bad-id --no-ack --init-fail; do echo "== test_pmic $$m"; ./test_pmic $$m || exit 1; done
+	@for m in --bad-id --no-ack --init-fail --uboot; do echo "== test_pmic $$m"; ./test_pmic $$m || exit 1; done
 	@echo "== test_pmic with $(DTB)"; if [ -f $(DTB) ]; then ./test_pmic $(DTB) || exit 1; else echo "(no DTB, skipped)"; fi
 	@echo "== key map against the kernel DTS"; if [ -d $(DTS) ]; then python3 -I check-keys-vs-dts.py $(DTS) ./dump_keys || exit 1; else echo "(no kernel tree, skipped)"; fi
 	@echo "== clock tables against U-Boot"; if [ -d $(UBOOT) ]; then python3 -I check-clk-vs-uboot.py $(UBOOT) ./dump_clk || exit 1; else echo "(no U-Boot tree, skipped)"; fi

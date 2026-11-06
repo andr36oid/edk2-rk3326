@@ -1,10 +1,12 @@
 // RkPmicLibRk817.c against a model of the RK817 register file (write-enable
 // nibbles on POWER_EN, write-1-to-clear interrupt status) and, when a DTB
 // path is given, the node names/properties of a real device tree.
-#include <Uefi.h>
+#include <PiDxe.h>
 #include <Library/FdtLib.h>
 #include <Library/RkI2cLib.h>
 #include <Library/RkPmicLib.h>
+#include <Library/HobLib.h>
+#include <Guid/RkPlatformInfoHob.h>
 #include <stdio.h>
 #include <string.h>
 #include "test.h"
@@ -49,6 +51,17 @@ EFI_STATUS EFIAPI RkI2cWrite (UINT8 Bus, UINT8 Chip, UINT8 Reg, CONST UINT8 *Buf
   return EFI_SUCCESS;
 }
 
+// The platform info HOB: BootloaderFdt != 0 means U-Boot ran first.
+EFI_GUID gRkPlatformInfoHobGuid = { 0x3a1f6c2e, 0x8b4d, 0x4e57, { 0x9a, 0x21, 0x6d, 0x0c, 0x5e, 0x7b, 0x14, 0xa9 } };
+static struct { EFI_HOB_GUID_TYPE Hdr; RK_PLATFORM_INFO_HOB Info; } info_hob;
+static int have_hob;
+
+VOID * EFIAPI GetFirstGuidHob (CONST EFI_GUID *Guid)
+{
+  CHECK_EQ (memcmp (Guid, &gRkPlatformInfoHobGuid, sizeof (EFI_GUID)), 0);
+  return have_hob ? (VOID *)&info_hob : NULL;
+}
+
 static int wrote (UINT8 reg)
 {
   for (int i = 0; i < write_log_n; i++) if (write_log[i].reg == reg) return 1;
@@ -65,6 +78,7 @@ static void test_basic (void)
 
   reset_dev ();
   dev[0xB1] = 0x0F; dev[0xB2] = 0xA5; dev[0xB3] = 0x03; dev[0xB4] = 0xF4;   // rails as the boot ROM left them
+  dev[0x50] = 0x04; dev[0x56] = 0xC1; dev[0xEC] = 0x0F;   // gauge off, average mode, discharge limit on
   CHECK_EQ (RkPmicInit (), EFI_SUCCESS);
   CHECK_EQ (i2c_inits, 1);
   CHECK_EQ (dev[0x99], 0x5F);                  // POWER_EN_SAVE0/1 as U-Boot's probe fills them
@@ -75,7 +89,10 @@ static void test_basic (void)
   CHECK_EQ (dev[0xC6] & 0x60, 0x60);
   CHECK_EQ (dev[0xF4] & 0x18, 0x08);
   CHECK_EQ (dev[0xFE] & 0x02, 0x00);
-  CHECK_EQ (dev[0x50] & 0x08, 0x08);           // battery ADC on
+  // what U-Boot's rk817_fg_init sets; the other bits stay
+  CHECK_EQ (dev[0x50], 0x8C);                  // gauge + battery voltage ADC on
+  CHECK_EQ (dev[0x56], 0xC3);                  // BAT_VOL = latest sample
+  CHECK_EQ (dev[0xEC], 0x07);                  // no battery discharge current limit
 
   // power status
   dev[0xF0] = 0x40;                            // PLUG_IN_STS
@@ -243,8 +260,33 @@ static int test_failure (const char *mode)
   DONE ();
 }
 
+// U-Boot ran first: its POWER_EN_SAVE copy (the power-on rails) must stay,
+// everything else is set as on a start without it.
+static int test_uboot (void)
+{
+  reset_dev ();
+  have_hob = 1;
+  info_hob.Info.BootloaderFdt = 0x01F00000;
+  dev[0xB1] = 0x0F; dev[0xB2] = 0xA5; dev[0xB3] = 0x03; dev[0xB4] = 0xF4;
+  dev[0x99] = 0x11; dev[0xA4] = 0x22;
+  CHECK_EQ (RkPmicInit (), EFI_SUCCESS);
+  CHECK (!wrote (0x99));
+  CHECK (!wrote (0xA4));
+  CHECK_EQ (dev[0x99], 0x11);
+  CHECK_EQ (dev[0xA4], 0x22);
+  CHECK_EQ (dev[0xC6] & 0x60, 0x60);
+  CHECK_EQ (dev[0x50] & 0x88, 0x88);
+  CHECK_EQ (dev[0x56] & 0x02, 0x02);
+  CHECK_EQ (dev[0xEC] & 0x08, 0x00);
+  DONE ();
+}
+
 int main (int argc, char **argv)
 {
+  if (argc > 1 && !strcmp (argv[1], "--uboot")) {
+    return test_uboot ();
+  }
+
   if (argc > 1 && argv[1][0] == '-') {
     return test_failure (argv[1]);
   }

@@ -212,6 +212,8 @@ static void *load (const char *path, long *size)
   return b;
 }
 
+int fdt_nop_property (void *fdt, int nodeoffset, const char *name);   // libfdt (fdt_wip.c)
+
 static void clear_actions (void)
 {
   memset (gpio_val, 0, sizeof (gpio_val)); memset (gpio_dir, 0, sizeof (gpio_dir)); memset (gpio_in, 0, sizeof (gpio_in));
@@ -285,6 +287,28 @@ static void test_boards (const char *dir)
   CHECK_EQ (boost_calls_on + boost_calls_off, 0);
   mock_delay_us = 0; run_dtb (path, 1, 1, out, &st);          // charger in: still host (port not shared)
   CHECK_EQ (st, EFI_SUCCESS); CHECK_EQ (gpio_val[3][4], 1);
+
+  // Without enable-active-high the kernel drives vcc_host active low, whatever
+  // the flags cell says (fixed.c), so the same node minus that property must
+  // switch the pin low for "on".
+  {
+    long n; void *fdt = load (path, &n);
+    int node = -1, depth = 0, len;
+    CHECK (fdt != NULL);
+    for (int o = fdt ? FdtNextNode (fdt, 0, &depth) : -1; o >= 0; o = FdtNextNode (fdt, o, &depth)) {
+      const char *nm = FdtGetProp (fdt, o, "regulator-name", &len);
+      if (nm && !strcmp (nm, "vcc_host")) { node = o; break; }
+    }
+    CHECK (node >= 0);
+    if (node >= 0) {
+      CHECK_EQ (fdt_nop_property (fdt, node, "enable-active-high"), 0);
+      clear_actions ();
+      CHECK_EQ (RkUsbPlatformApplyFdt (fdt), EFI_SUCCESS);
+      CHECK_EQ (gpio_log_n, 1); CHECK_EQ (gpio_val[3][4], 0);
+      printf ("  EE-G80 without enable-active-high: GPIO3_A4=%d\n", gpio_val[3][4]);
+    }
+    free (fdt);
+  }
 
   // D-28S: one port for charging and OTG
   snprintf (path, sizeof (path), "%s/rk3326-r36s-clone-d28s.dtb", root);
