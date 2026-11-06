@@ -47,6 +47,9 @@
   # The null instance is not mapped, built here so it keeps compiling
   Andr36oidPkg/Library/BootKeysLibNull/BootKeysLibNull.inf
 
+  # Clocks, IO domains, pins and GPIOs, first thing in DXE
+  r36sPkg/Drivers/BoardInitDxe/BoardInitDxe.inf
+
   # d-pad and A/B as text input
   SiliciumPkg/Drivers/KeypadDxe/KeypadDxe.inf
   SiliciumPkg/Drivers/KeypadDeviceDxe/KeypadDeviceDxe.inf

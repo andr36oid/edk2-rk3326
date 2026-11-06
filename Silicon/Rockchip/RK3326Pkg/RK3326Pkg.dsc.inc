@@ -46,6 +46,7 @@
   ResetSystemLib|RK3326Pkg/Library/ResetSystemLib/ResetSystemLib.inf
   GpioLib|RK3326Pkg/Library/GpioLib/GpioLib.inf
   CruLib|RK3326Pkg/Library/CruLib/CruLib.inf
+  RkClockInitLib|RK3326Pkg/Library/RkClockInitLib/RkClockInitLib.inf
   RkSdmmcPlatformLib|RK3326Pkg/Library/RkSdmmcPlatformLib/RkSdmmcPlatformLib.inf
 
   # The DesignWare MMC controllers are not cache coherent.

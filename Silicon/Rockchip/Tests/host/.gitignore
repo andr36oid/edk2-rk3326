@@ -5,3 +5,6 @@ test_keys
 dump_keys
 *.o
 test_cru
+test_clock
+test_board
+dump_clk
