@@ -137,7 +137,7 @@ CruSetSdmmcClockRate (
     ((0x3U << MMC_SRC_SHIFT | MMC_DIV_MASK) << 16) | (SrcSel << MMC_SRC_SHIFT) | (UINT32)(Div - 1)
     );
   // Take clk_*_div, not the div50 path.
-  MmioWrite32 (CRU_CLKSEL_CON (mMmcClk[Index].ClkSel + 1), MMC_DIV50_SEL << 16);
+  MmioWrite32 (CRU_CLKSEL_CON (mMmcClk[Index].ClkSel + 1), (UINT32)MMC_DIV50_SEL << 16);
   // Ungate: hiword-masked, a written 0 enables.
   for (Bit = 0; Bit < ARRAY_SIZE (mMmcClk[Index].Gates); Bit++) {
     MmioWrite32 (CRU_CLKGATE_CON (mMmcClk[Index].Gates[Bit][0]), 1U << (mMmcClk[Index].Gates[Bit][1] + 16));

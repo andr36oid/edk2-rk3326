@@ -1158,7 +1158,8 @@ DwMmcExecTrb (
   //
   // Command phase
   //
-  Status = EFI_TIMEOUT;
+  Status    = EFI_TIMEOUT;
+  IntStatus = 0;
   for (Waited = 0; Waited < BudgetUs; Waited++) {
     IntStatus = MmioRead32 (DevBase + DW_MMC_RINTSTS);
 

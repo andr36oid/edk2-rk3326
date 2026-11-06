@@ -176,7 +176,7 @@
 #define DWC2_GLPMCTL_RETRY_COUNT_STS_OFFSET             25
 #define DWC2_GLPMCTL_HSIC_CONNECT                       (1 << 30)
 #define DWC2_GLPMCTL_HSIC_CONNECT_OFFSET                30
-#define DWC2_GLPMCTL_INV_SEL_HSIC                       (1 << 31)
+#define DWC2_GLPMCTL_INV_SEL_HSIC                       (1U << 31)
 #define DWC2_GLPMCTL_INV_SEL_HSIC_OFFSET                31
 #define DWC2_GRSTCTL_CSFTRST                            (1 << 0)
 #define DWC2_GRSTCTL_CSFTRST_OFFSET                     0
@@ -194,7 +194,7 @@
 #define DWC2_GRSTCTL_TXFNUM_OFFSET                      6
 #define DWC2_GRSTCTL_DMAREQ                             (1 << 30)
 #define DWC2_GRSTCTL_DMAREQ_OFFSET                      30
-#define DWC2_GRSTCTL_AHBIDLE                            (1 << 31)
+#define DWC2_GRSTCTL_AHBIDLE                            (1U << 31)
 #define DWC2_GRSTCTL_AHBIDLE_OFFSET                     31
 #define DWC2_GINTMSK_MODEMISMATCH                       (1 << 1)
 #define DWC2_GINTMSK_MODEMISMATCH_OFFSET                1
@@ -248,7 +248,7 @@
 #define DWC2_GINTMSK_DISCONNECT_OFFSET                  29
 #define DWC2_GINTMSK_SESSREQINTR                        (1 << 30)
 #define DWC2_GINTMSK_SESSREQINTR_OFFSET                 30
-#define DWC2_GINTMSK_WKUPINTR                           (1 << 31)
+#define DWC2_GINTMSK_WKUPINTR                           (1U << 31)
 #define DWC2_GINTMSK_WKUPINTR_OFFSET                    31
 #define DWC2_GINTSTS_CURMODE_DEVICE                     (0 << 0)
 #define DWC2_GINTSTS_CURMODE_HOST                       (1 << 0)
@@ -308,7 +308,7 @@
 #define DWC2_GINTSTS_DISCONNECT_OFFSET                  29
 #define DWC2_GINTSTS_SESSREQINTR                        (1 << 30)
 #define DWC2_GINTSTS_SESSREQINTR_OFFSET                 30
-#define DWC2_GINTSTS_WKUPINTR                           (1 << 31)
+#define DWC2_GINTSTS_WKUPINTR                           (1U << 31)
 #define DWC2_GINTSTS_WKUPINTR_OFFSET                    31
 #define DWC2_GRXSTS_EPNUM_MASK                          (0xF << 0)
 #define DWC2_GRXSTS_EPNUM_OFFSET                        0
@@ -322,7 +322,7 @@
 #define DWC2_GRXSTS_FN_OFFSET                           21
 #define DWC2_FIFOSIZE_STARTADDR_MASK                    (0xFFFF << 0)
 #define DWC2_FIFOSIZE_STARTADDR_OFFSET                  0
-#define DWC2_FIFOSIZE_DEPTH_MASK                        (0xFFFF << 16)
+#define DWC2_FIFOSIZE_DEPTH_MASK                        (0xFFFFU << 16)
 #define DWC2_FIFOSIZE_DEPTH_OFFSET                      16
 #define DWC2_GNPTXSTS_NPTXFSPCAVAIL_MASK                (0xFFFF << 0)
 #define DWC2_GNPTXSTS_NPTXFSPCAVAIL_OFFSET              0
@@ -352,7 +352,7 @@
 #define DWC2_GI2CCTL_I2CDEVADDR_OFFSET                  26
 #define DWC2_GI2CCTL_RW                                 (1 << 30)
 #define DWC2_GI2CCTL_RW_OFFSET                          30
-#define DWC2_GI2CCTL_BSYDNE                             (1 << 31)
+#define DWC2_GI2CCTL_BSYDNE                             (1U << 31)
 #define DWC2_GI2CCTL_BSYDNE_OFFSET                      31
 #define DWC2_HWCFG1_EP_DIR0_MASK                        (0x3 << 0)
 #define DWC2_HWCFG1_EP_DIR0_OFFSET                      0
@@ -384,7 +384,7 @@
 #define DWC2_HWCFG1_EP_DIR13_OFFSET                     26
 #define DWC2_HWCFG1_EP_DIR14_MASK                       (0x3 << 28)
 #define DWC2_HWCFG1_EP_DIR14_OFFSET                     28
-#define DWC2_HWCFG1_EP_DIR15_MASK                       (0x3 << 30)
+#define DWC2_HWCFG1_EP_DIR15_MASK                       (0x3U << 30)
 #define DWC2_HWCFG1_EP_DIR15_OFFSET                     30
 #define DWC2_HWCFG2_OP_MODE_MASK                        (0x7 << 0)
 #define DWC2_HWCFG2_OP_MODE_OFFSET                      0
@@ -435,7 +435,7 @@
 #define DWC2_HWCFG3_OTG_ENABLE_HSIC_OFFSET              13
 #define DWC2_HWCFG3_OTG_LPM_EN                          (1 << 15)
 #define DWC2_HWCFG3_OTG_LPM_EN_OFFSET                   15
-#define DWC2_HWCFG3_DFIFO_DEPTH_MASK                    (0xFFFF << 16)
+#define DWC2_HWCFG3_DFIFO_DEPTH_MASK                    (0xFFFFU << 16)
 #define DWC2_HWCFG3_DFIFO_DEPTH_OFFSET                  16
 #define DWC2_HWCFG4_NUM_DEV_PERIO_IN_EP_MASK            (0xF << 0)
 #define DWC2_HWCFG4_NUM_DEV_PERIO_IN_EP_OFFSET          0
@@ -463,7 +463,7 @@
 #define DWC2_HWCFG4_NUM_IN_EPS_OFFSET                   26
 #define DWC2_HWCFG4_DESC_DMA                            (1 << 30)
 #define DWC2_HWCFG4_DESC_DMA_OFFSET                     30
-#define DWC2_HWCFG4_DESC_DMA_DYN                        (1 << 31)
+#define DWC2_HWCFG4_DESC_DMA_DYN                        (1U << 31)
 #define DWC2_HWCFG4_DESC_DMA_DYN_OFFSET                 31
 #define DWC2_HCFG_FSLSPCLKSEL_30_60_MHZ                 0
 #define DWC2_HCFG_FSLSPCLKSEL_48_MHZ                    1
@@ -484,7 +484,7 @@
 #define DWC2_HFIR_FRINT_OFFSET                          0
 #define DWC2_HFNUM_FRNUM_MASK                           (0x3FFF << 0)
 #define DWC2_HFNUM_FRNUM_OFFSET                         0
-#define DWC2_HFNUM_FRREM_MASK                           (0xFFFF << 16)
+#define DWC2_HFNUM_FRREM_MASK                           (0xFFFFU << 16)
 #define DWC2_HFNUM_FRREM_OFFSET                         16
 #define DWC2_HPTXSTS_PTXFSPCAVAIL_MASK                  (0xFFFF << 0)
 #define DWC2_HPTXSTS_PTXFSPCAVAIL_OFFSET                0
@@ -496,7 +496,7 @@
 #define DWC2_HPTXSTS_PTXQTOP_TOKEN_OFFSET               25
 #define DWC2_HPTXSTS_PTXQTOP_CHNUM_MASK                 (0xF << 27)
 #define DWC2_HPTXSTS_PTXQTOP_CHNUM_OFFSET               27
-#define DWC2_HPTXSTS_PTXQTOP_ODD                        (1 << 31)
+#define DWC2_HPTXSTS_PTXQTOP_ODD                        (1U << 31)
 #define DWC2_HPTXSTS_PTXQTOP_ODD_OFFSET                 31
 #define DWC2_HPRT0_PRTCONNSTS                           (1 << 0)
 #define DWC2_HPRT0_PRTCONNSTS_OFFSET                    0
@@ -617,7 +617,7 @@
 #define DWC2_HCCHAR_ODDFRM_OFFSET                       29
 #define DWC2_HCCHAR_CHDIS                               (1 << 30)
 #define DWC2_HCCHAR_CHDIS_OFFSET                        30
-#define DWC2_HCCHAR_CHEN                                (1 << 31)
+#define DWC2_HCCHAR_CHEN                                (1U << 31)
 #define DWC2_HCCHAR_CHEN_OFFSET                         31
 #define DWC2_HCSPLT_PRTADDR_MASK                        (0x7F << 0)
 #define DWC2_HCSPLT_PRTADDR_OFFSET                      0
@@ -627,7 +627,7 @@
 #define DWC2_HCSPLT_XACTPOS_OFFSET                      14
 #define DWC2_HCSPLT_COMPSPLT                            (1 << 16)
 #define DWC2_HCSPLT_COMPSPLT_OFFSET                     16
-#define DWC2_HCSPLT_SPLTENA                             (1 << 31)
+#define DWC2_HCSPLT_SPLTENA                             (1U << 31)
 #define DWC2_HCSPLT_SPLTENA_OFFSET                      31
 #define DWC2_HCINT_XFERCOMP                             (1 << 0) // Transfer complete
 #define DWC2_HCINT_XFERCOMP_OFFSET                      0
@@ -695,11 +695,11 @@
 #define DWC2_HCTSIZ_PKTCNT_OFFSET                       19
 #define DWC2_HCTSIZ_PID_MASK                            (0x3 << 29)
 #define DWC2_HCTSIZ_PID_OFFSET                          29
-#define DWC2_HCTSIZ_DOPNG                               (1 << 31)
+#define DWC2_HCTSIZ_DOPNG                               (1U << 31)
 #define DWC2_HCTSIZ_DOPNG_OFFSET                        31
 #define DWC2_HCDMA_CTD_MASK                             (0xFF << 3)
 #define DWC2_HCDMA_CTD_OFFSET                           3
-#define DWC2_HCDMA_DMA_ADDR_MASK                        (0x1FFFFF << 11)
+#define DWC2_HCDMA_DMA_ADDR_MASK                        (0x1FFFFFU << 11)
 #define DWC2_HCDMA_DMA_ADDR_OFFSET                      11
 #define DWC2_PCGCCTL_STOPPCLK                           (1 << 0)
 #define DWC2_PCGCCTL_STOPPCLK_OFFSET                    0
@@ -719,7 +719,7 @@
 #define DWC2_PCGCCTL_DEEP_SLEEP_OFFSET                  7
 #define DWC2_SNPSID_DEVID_VER_2xx                       (0x4f542 << 12)
 #define DWC2_SNPSID_DEVID_VER_3xx                       (0x4f543 << 12)
-#define DWC2_SNPSID_DEVID_MASK                          (0xfffff << 12)
+#define DWC2_SNPSID_DEVID_MASK                          (0xfffffU << 12)
 #define DWC2_SNPSID_DEVID_OFFSET                        12
 
 /* Host controller specific */
@@ -736,7 +736,7 @@
 #define RH_A_DT         (1 << 10)       /* device type (mbz) */
 #define RH_A_OCPM       (1 << 11)       /* over current protection mode */
 #define RH_A_NOCP       (1 << 12)       /* no over current protection */
-#define RH_A_POTPGT     (0xff << 24)    /* power on to power good time */
+#define RH_A_POTPGT     (0xffU << 24)    /* power on to power good time */
 
 /* roothub.b masks */
 #define RH_B_DR         0x0000ffff      /* device removable flags */
